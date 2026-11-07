@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -85,7 +86,7 @@ fun StaffLeaveChangeScreen(
                 )
 
                 if (res.isSuccessful) {
-                    Toast.makeText(context, "İzin talebiniz iletildi", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("İzin talebiniz iletildi")
                     onNavigateBack()
                 } else {
                     errorMessage = "Talep iletilemedi: ${res.code()}"

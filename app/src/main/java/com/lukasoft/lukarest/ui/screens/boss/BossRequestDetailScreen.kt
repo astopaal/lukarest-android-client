@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -79,13 +80,13 @@ fun BossRequestDetailScreen(
                 )
                 if (res.isSuccessful) {
                     val msg = if (isApproved) "Talep onaylandı ve vardiyaya işlendi" else "Talep reddedildi"
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show(msg)
                     onNavigateBack()
                 } else {
-                    Toast.makeText(context, "İşlem başarısız: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("İşlem başarısız: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             } finally {
                 isSubmitting = false
             }

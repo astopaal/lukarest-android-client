@@ -13,11 +13,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import com.lukasoft.lukarest.data.api.ApiClient
 import com.lukasoft.lukarest.data.store.AuthStore
 import com.lukasoft.lukarest.ui.navigation.AppNavigation
+import com.lukasoft.lukarest.ui.components.LukaFeedbackOverlay
 import com.lukasoft.lukarest.ui.theme.LukarestTheme
 
 class MainActivity : ComponentActivity() {
@@ -77,11 +82,14 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                AppNavigation(
-                    initialToken = deepLinkTokenState.value,
-                    pendingPush = pushState.value,
-                    onPushHandled = { pushState.value = null }
-                )
+                Box(Modifier.fillMaxSize()) {
+                    AppNavigation(
+                        initialToken = deepLinkTokenState.value,
+                        pendingPush = pushState.value,
+                        onPushHandled = { pushState.value = null }
+                    )
+                    LukaFeedbackOverlay(Modifier.align(Alignment.BottomCenter))
+                }
             }
         }
     }

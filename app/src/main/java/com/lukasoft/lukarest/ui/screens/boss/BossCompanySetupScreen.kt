@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -216,7 +217,7 @@ fun BossCompanySetupScreen(
                     AuthStore.setRequiresSetup(false)
                     AuthStore.updateActiveBranch(updatedBranch.id, updatedBranch.name)
 
-                    Toast.makeText(context, "İşletme ve ilk şubeniz hazır!", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("İşletme ve ilk şubeniz hazır!")
                     onSetupComplete()
                 } else {
                     errorMessage = "Şube kaydedilemedi: ${updateRes.code()} - ${updateRes.message()}"

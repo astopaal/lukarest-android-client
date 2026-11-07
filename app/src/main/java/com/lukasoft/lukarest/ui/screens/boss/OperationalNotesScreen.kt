@@ -1,13 +1,16 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -81,12 +84,12 @@ fun OperationalNotesScreen(
 
     fun handleCreateNote() {
         if (inputNoteContent.trim().length < 3) {
-            Toast.makeText(context, "Not en az 3 karakter olmalıdır", Toast.LENGTH_SHORT).show()
+            LukaFeedback.show("Not en az 3 karakter olmalıdır")
             return
         }
         if (selectedTab == "Reservation") {
             if (inputGuestName.isBlank() || inputGuestPhone.isBlank()) {
-                Toast.makeText(context, "Rezervasyon için ad ve telefon zorunludur", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Rezervasyon için ad ve telefon zorunludur")
                 return
             }
         }
@@ -107,7 +110,7 @@ fun OperationalNotesScreen(
                 val noteId = editing?.id
                 val res = if (noteId == null) service.createNote(command) else service.updateNote(noteId, command)
                 if (res.isSuccessful) {
-                    Toast.makeText(context, "Kayıt başarıyla eklendi", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Kayıt başarıyla eklendi")
                     showAddDialog = false
                     inputNoteContent = ""
                     inputGuestName = ""
@@ -115,10 +118,10 @@ fun OperationalNotesScreen(
                     inputTableNo = ""
                     refreshNotes()
                 } else {
-                    Toast.makeText(context, "Eklenemedi: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Eklenemedi: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             } finally {
                 isSaving = false
             }
@@ -130,7 +133,7 @@ fun OperationalNotesScreen(
             try {
                 val res = ApiClient.operationalNotesService.deleteNote(id)
                 if (res.isSuccessful) {
-                    Toast.makeText(context, "Kayıt silindi", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Kayıt silindi")
                     refreshNotes()
                 }
             } catch (_: Exception) {}
@@ -327,7 +330,7 @@ fun OperationalNotesScreen(
             text = {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())
                 ) {
                     if (selectedTab == "Reservation") {
                         OutlinedTextField(
