@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -34,8 +35,7 @@ import kotlinx.coroutines.launch
 fun StaffRequestsScreen(
     viewModel: LukaViewModel,
     onNavigateToShiftChange: () -> Unit,
-    onNavigateToLeaveChange: () -> Unit,
-    onLogout: () -> Unit
+    onNavigateToLeaveChange: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -71,13 +71,13 @@ fun StaffRequestsScreen(
             try {
                 val res = ApiClient.requestsService.cancelMyRequest(requestId)
                 if (res.isSuccessful) {
-                    Toast.makeText(context, "Talep iptal edildi", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Talep iptal edildi")
                     refreshRequests()
                 } else {
-                    Toast.makeText(context, "İptal edilemedi: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("İptal edilemedi: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             }
         }
     }
@@ -95,7 +95,7 @@ fun StaffRequestsScreen(
                     subtitle = staffName ?: "İzin & Vardiya Talepleri",
                     initials = (staffName?.take(2) ?: "P").uppercase(),
                     gradient = StaffGradient,
-                    onActionClick = onLogout
+                    showAction = false
                 )
             }
         },

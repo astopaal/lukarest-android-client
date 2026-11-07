@@ -243,15 +243,7 @@ fun AppNavigation(
 
             composable(Screen.StaffShifts.route) {
                 StaffShiftsScreen(
-                    viewModel = viewModel,
-                    onLogout = {
-                        sessionScope.launch {
-                            AuthStore.endSession()
-                            navController.navigate(Screen.StaffPair.route) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        }
-                    }
+                    viewModel = viewModel
                 )
             }
 
@@ -260,14 +252,6 @@ fun AppNavigation(
                     viewModel = viewModel,
                     onNavigateToTaskComplete = { taskId ->
                         navController.navigate(Screen.StaffTaskComplete.createRoute(taskId))
-                    },
-                    onLogout = {
-                        sessionScope.launch {
-                            AuthStore.endSession()
-                            navController.navigate(Screen.StaffPair.route) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        }
                     }
                 )
             }
@@ -285,18 +269,7 @@ fun AppNavigation(
                 StaffRequestsScreen(
                     viewModel = viewModel,
                     onNavigateToShiftChange = { navController.navigate(Screen.StaffShiftChange.route) },
-                    onNavigateToLeaveChange = { navController.navigate(Screen.StaffLeaveChange.route) },
-                    onLogout = {
-                        sessionScope.launch {
-                            AuthStore.endSession()
-                            navController.navigate(Screen.StaffPair.route) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        }
-                    onNavigateToBranches = { navController.navigate(Screen.BossBranches.route) },
-                    }
-                    onNavigateToShifts = { navController.navigate(Screen.BossShifts.route) },
-                    onNavigateToTasks = { navController.navigate(Screen.BossTasks.route) },
+                    onNavigateToLeaveChange = { navController.navigate(Screen.StaffLeaveChange.route) }
                 )
             }
 
@@ -314,17 +287,16 @@ fun AppNavigation(
                 )
             }
 
-            composable(Screen.BossBranches.route) {
-                BranchManagementScreen(onBack = { navController.popBackStack() })
-            }
-
             // ── Boss Ekranları ──
             composable(Screen.BossDashboard.route) {
                 BossDashboardScreen(
                     viewModel = viewModel,
                     onNavigateToRequests = { navController.navigate(Screen.BossRequests.route) },
                     onNavigateToStaff = { navController.navigate("boss/staff") },
+                    onNavigateToBranches = { navController.navigate(Screen.BossBranches.route) },
                     onNavigateToNotes = { navController.navigate(Screen.OperationalNotes.route) },
+                    onNavigateToShifts = { navController.navigate(Screen.BossShifts.route) },
+                    onNavigateToTasks = { navController.navigate(Screen.BossTasks.route) },
                     onLogout = {
                         sessionScope.launch {
                             AuthStore.endSession()
@@ -340,6 +312,10 @@ fun AppNavigation(
                 BossStaffScanScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
+            }
+
+            composable(Screen.BossBranches.route) {
+                BranchManagementScreen(onBack = { navController.popBackStack() })
             }
 
             composable(Screen.BossShifts.route) {

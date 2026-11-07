@@ -1,4 +1,5 @@
 package com.lukasoft.lukarest.ui.screens.boss
+import com.lukasoft.lukarest.data.store.AuthStore
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -83,6 +84,7 @@ fun BossRequestsScreen(
                     subtitle = "Vardiya & İzin Talepleri",
                     initials = "P",
                     gradient = BossGradient,
+                    showAction = AuthStore.globalRole.collectAsState().value == "CompanyOwner",
                     onActionClick = onLogout
                 )
             }

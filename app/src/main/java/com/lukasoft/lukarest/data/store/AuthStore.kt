@@ -224,6 +224,7 @@ object AuthStore {
     }
 
     suspend fun endSession() {
+        if (_role.value == AppRole.STAFF || _globalRole.value == "StandardUser") return
         try {
             fcmToken.value?.let { fid ->
                 try {

@@ -37,8 +37,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun StaffTasksScreen(
     viewModel: LukaViewModel,
-    onNavigateToTaskComplete: (String) -> Unit,
-    onLogout: () -> Unit
+    onNavigateToTaskComplete: (String) -> Unit
 ) {
     val tasks by viewModel.tasks.collectAsState()
     var selectedFilter by remember { mutableStateOf("all") } // "all", "pending", "done"
@@ -80,7 +79,7 @@ fun StaffTasksScreen(
                     subtitle = "Vardiya Görev Listesi",
                     initials = "AY",
                     gradient = StaffGradient,
-                    onActionClick = onLogout
+                    showAction = false
                 )
             }
         },
@@ -202,11 +201,11 @@ fun TaskCardItem(
                     fontWeight = FontWeight.SemiBold,
                     color = if (isDone) TextMuted else TextMain,
                     textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
+                )
                 task.description?.takeIf { it.isNotBlank() }?.let {
                     Spacer(Modifier.height(3.dp))
                     Text(it, fontSize = 12.sp, color = TextSoft, maxLines = 2)
                 }
-                )
                 Text(
                     text = "${task.startTime}${if (task.endTime != null) " — ${task.endTime}" else ""}",
                     fontSize = 12.sp,

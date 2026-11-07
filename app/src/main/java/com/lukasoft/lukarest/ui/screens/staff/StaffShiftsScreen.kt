@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -40,8 +39,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun StaffShiftsScreen(
-    viewModel: LukaViewModel,
-    onLogout: () -> Unit
+    viewModel: LukaViewModel
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -93,8 +91,7 @@ fun StaffShiftsScreen(
                     subtitle = currentUser?.fullName ?: AuthStore.staffName.value ?: "Personel",
                     initials = "P",
                     gradient = StaffGradient,
-                    actionIcon = Icons.AutoMirrored.Filled.Logout,
-                    onActionClick = onLogout
+                    showAction = false
                 )
             }
         },
