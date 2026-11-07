@@ -79,6 +79,9 @@ fun BossStaffScanScreen(
     var addingNew by remember { mutableStateOf(false) }
     var showBirthDatePicker by remember { mutableStateOf(false) }
     var loadingStaff by remember { mutableStateOf(false) }
+    var isOperator by remember { mutableStateOf(false) }
+    val globalRole by com.lukasoft.lukarest.data.store.AuthStore.globalRole.collectAsState()
+    var staffSearch by remember { mutableStateOf("") }
 
     val handleSaveStaff = {
         val code = scannedCode
@@ -94,7 +97,8 @@ fun BossStaffScanScreen(
                             fullName = name.trim(),
                             phoneNumber = phone.trim(),
                             employmentType = workType,
-                            birthDate = birthDate.trim()
+                            birthDate = birthDate.trim(),
+                            roleInBranch = if (isOperator) "Owner" else if (selected?.roleInBranch == "Owner") "Waiter" else null
                         )
                     )
                     isSuccess = result.isSuccessful
@@ -121,28 +125,55 @@ fun BossStaffScanScreen(
     }
 
     candidates?.let { staff ->
-        AlertDialog(
-            onDismissRequest = { candidates = null },
-            title = { Text("Mevcut personeli seç") },
-            text = {
-                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    if (staff.isEmpty()) Text("Bu şubede personel bulunamadı.")
-                    staff.forEach { person ->
-                        TextButton(onClick = {
+        ModalBottomSheet(
+            onDismissRequest = { candidates = null; staffSearch = "" },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = BgScreenTop,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Personeli seç", style = MaterialTheme.typography.headlineSmall, color = BossGradStart)
+                Text("Cihazı eşleştireceğin kişiyi bul.", color = TextSoft)
+                OutlinedTextField(
+                    value = staffSearch, onValueChange = { staffSearch = it },
+                    placeholder = { Text("Ad veya telefon ara") }, singleLine = true,
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()
+                )
+                val filtered = staff.filter { it.fullName.contains(staffSearch, ignoreCase = true) || it.phoneNumber.contains(staffSearch) }
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    if (filtered.isEmpty()) item { Text("Eşleşen personel bulunamadı.", color = TextMuted) }
+                    items(filtered.size) { index ->
+                        val person = filtered[index]
+                        LukaCard(modifier = Modifier.fillMaxWidth().clickable {
                             selected = person
+                            isOperator = person.roleInBranch == "Owner"
                             name = person.fullName
                             phone = person.phoneNumber
                             birthDate = person.birthDate
                             workType = if (person.employmentType == "PartTime") 2 else 1
                             candidates = null
+                            staffSearch = ""
                         }) {
-                            Text(person.fullName + if (person.isActive) " · Yeni cihaz" else " · Pasif")
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Box(Modifier.size(44.dp).clip(CircleShape).background(PillBlue.bg), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, null, tint = BossGradStart)
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(person.fullName, style = MaterialTheme.typography.titleSmall, color = TextMain)
+                                    Text(person.phoneNumber, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                                }
+                                if (!person.isActive) StatusPill("Pasif", pillColor = PillNeutral)
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, "Seç", tint = BossGradStart)
+                            }
                         }
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { candidates = null }) { Text("Kapat") } }
-        )
+            }
+        }
     }
 
     if (showBirthDatePicker) {
@@ -315,41 +346,56 @@ fun BossStaffScanScreen(
                             birthDate = ""
                             workType = 1
                             addingNew = true
+                            isOperator = false
                             feedbackMessage = null
                         }
                     )
                     Spacer(Modifier.height(8.dp))
-                    listOf(true, false)
-                        .forEach { active ->
-                            PairingOption(
-                                title = if (active) "Yeni cihazı eşleştir" else "Pasif personeli etkinleştir",
-                                description = if (active) "Aktif personelin hesabını bu cihaza bağla."
-                                    else "Hesabı yeniden aç ve cihazı bağla.",
-                                icon = if (active) Icons.Default.Smartphone else Icons.Default.Person,
-                                enabled = !loadingStaff,
-                                onClick = {
-                                loadingStaff = true
-                                feedbackMessage = null
-                                coroutineScope.launch {
-                                    try {
-                                        val result = ApiClient.staffAdminService.getStaff(includeInactive = !active)
-                                        if (result.isSuccessful) {
-                                            candidates = result.body().orEmpty().filter { it.isActive == active }
-                                        } else feedbackMessage = "Personel listesi alınamadı."
-                                    } catch (_: java.io.IOException) {
-                                        feedbackMessage = "Sunucuya ulaşılamadı."
-                                    } finally {
-                                        loadingStaff = false
-                                    }
+                    PairingOption(
+                        title = "Mevcut personeli seç",
+                        description = "Aktif hesabı yeni cihaza bağla veya pasif hesabı yeniden aç.",
+                        icon = Icons.Default.Smartphone,
+                        enabled = !loadingStaff,
+                        onClick = {
+                            loadingStaff = true
+                            feedbackMessage = null
+                            coroutineScope.launch {
+                                try {
+                                    val result = ApiClient.staffAdminService.getStaff(includeInactive = true)
+                                    if (result.isSuccessful) candidates = result.body().orEmpty()
+                                    else feedbackMessage = "Personel listesi alınamadı."
+                                } catch (_: java.io.IOException) {
+                                    feedbackMessage = "Sunucuya ulaşılamadı."
+                                } finally {
+                                    loadingStaff = false
                                 }
-                                }
-                            )
-                            if (active) Spacer(Modifier.height(8.dp))
+                            }
                         }
+                    )
                     if (loadingStaff) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
                 }
 
                 if (addingNew || selected != null) {
+                    Text("Hesap türü", style = MaterialTheme.typography.titleSmall, color = BossGradStart)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = !isOperator,
+                            onClick = { isOperator = false },
+                            enabled = !isSubmitting && (globalRole == "CompanyOwner" || !isOperator),
+                            label = { Text("Personel") }
+                        )
+                        FilterChip(
+                            selected = isOperator,
+                            onClick = { isOperator = true },
+                            enabled = !isSubmitting && globalRole == "CompanyOwner",
+                            label = { Text("İşletmeci") }
+                        )
+                    }
+                    Text(
+                        if (isOperator) "Owner yetkisiyle yönetim ekranını kullanır; vardiyası da planlanabilir."
+                        else "Personel ekranını kullanır; mevcut görev rolü korunur.",
+                        style = MaterialTheme.typography.bodySmall, color = TextSoft
+                    )
                     Text(
                         if (addingNew) "Yeni personel bilgileri" else "Personel bilgilerini doğrula",
                         style = MaterialTheme.typography.titleLarge,
@@ -357,12 +403,13 @@ fun BossStaffScanScreen(
                     )
                     TextButton(enabled = !isSubmitting, onClick = {
                         selected = null
+                        isOperator = false
                         addingNew = false
                         feedbackMessage = null
                     }) { Text("İşlemi değiştir") }
 
                     OutlinedTextField(
-                        readOnly = selected != null || isSubmitting,
+                        enabled = !isSubmitting,
                         value = name,
                         onValueChange = { name = it },
                         label = { Text("Ad Soyad *") },
@@ -374,7 +421,7 @@ fun BossStaffScanScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     OutlinedTextField(
-                        readOnly = selected != null || isSubmitting,
+                        enabled = !isSubmitting,
                         value = phone,
                         onValueChange = { phone = it },
                         label = { Text("Telefon Numarası *") },

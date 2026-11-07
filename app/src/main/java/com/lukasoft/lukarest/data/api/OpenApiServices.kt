@@ -29,7 +29,8 @@ data class ClaimStaffQrSessionCommand(
     @SerializedName("fullName") val fullName: String,
     @SerializedName("phoneNumber") val phoneNumber: String,
     @SerializedName("employmentType") val employmentType: Int, // 1: FullTime, 2: PartTime
-    @SerializedName("birthDate") val birthDate: String // YYYY-MM-DD
+    @SerializedName("birthDate") val birthDate: String, // YYYY-MM-DD
+    @SerializedName("roleInBranch") val roleInBranch: String? = null
 )
 
 data class ExchangeStaffQrSessionCommand(

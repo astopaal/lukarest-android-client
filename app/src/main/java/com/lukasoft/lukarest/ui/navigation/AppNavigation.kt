@@ -222,7 +222,8 @@ fun AppNavigation(
                         navController.navigate(Screen.Login.route)
                     },
                     onPairSuccess = {
-                        navController.navigate(Screen.StaffToday.route) {
+                        val destination = if (AuthStore.role.value == AppRole.BOSS) Screen.BossDashboard.route else Screen.StaffToday.route
+                        navController.navigate(destination) {
                             popUpTo(Screen.StaffPair.route) { inclusive = true }
                         }
                     }
