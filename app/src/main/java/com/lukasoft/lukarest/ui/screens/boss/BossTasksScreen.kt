@@ -4,14 +4,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,9 +29,11 @@ import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
 import com.lukasoft.lukarest.data.api.toTaskItem
 import com.lukasoft.lukarest.data.model.TaskStatus
+import com.lukasoft.lukarest.data.model.TaskItem
 import com.lukasoft.lukarest.data.util.DateUtils
 import com.lukasoft.lukarest.ui.components.LukaCard
 import com.lukasoft.lukarest.ui.components.LukaProgressBar
+import com.lukasoft.lukarest.ui.components.LukaSnackbarHost
 import com.lukasoft.lukarest.ui.components.PullToRefreshBox
 import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.components.TopPill
@@ -32,7 +41,11 @@ import com.lukasoft.lukarest.ui.theme.*
 import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BossTasksScreen(
     viewModel: LukaViewModel,
@@ -40,9 +53,12 @@ fun BossTasksScreen(
     onLogout: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
     val tasks by viewModel.tasks.collectAsState()
     var filter by remember { mutableStateOf("all") }
     var isRefreshing by remember { mutableStateOf(false) }
+    var selectedTask by remember { mutableStateOf<TaskItem?>(null) }
 
     fun refreshTasks() {
         coroutineScope.launch {
@@ -82,6 +98,7 @@ fun BossTasksScreen(
     }
 
     Scaffold(
+        snackbarHost = { LukaSnackbarHost(snackbar) },
         topBar = {
             Box(
                 modifier = Modifier
@@ -176,6 +193,7 @@ fun BossTasksScreen(
                 ) {
                     items(filteredTasks) { task ->
                         LukaCard(
+                            modifier = Modifier.clickable { selectedTask = task },
                             contentPadding = PaddingValues(14.dp)
                         ) {
                             Row(
@@ -259,6 +277,66 @@ fun BossTasksScreen(
                     item { Spacer(modifier = Modifier.height(80.dp)) }
                 }
             }
+        }
+    }
+
+    selectedTask?.let { task ->
+        ModalBottomSheet(
+            onDismissRequest = { selectedTask = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            containerColor = BgScreenTop
+        ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text("Görev detayı", style = MaterialTheme.typography.labelLarge, color = TextMuted)
+                    Text(task.title, style = MaterialTheme.typography.headlineSmall, color = BossGradStart)
+                    Text(task.description?.takeIf { it.isNotBlank() } ?: "Bu görev için açıklama eklenmemiş.", color = TextSoft)
+                    Text("Atanan: ${task.assignedTo.ifBlank { "Personel" }}", color = TextMuted)
+                    Text("Durum: ${when (task.status) { TaskStatus.DONE -> "Tamamlandı"; TaskStatus.LATE -> "Gecikti"; TaskStatus.PENDING -> "Bekliyor" }}", color = TextMain)
+                    task.completionNote?.takeIf { it.isNotBlank() }?.let {
+                        LukaCard(backgroundColor = PillBlue.bg, elevation = 0.dp) {
+                            Text("Personelin notu", style = MaterialTheme.typography.labelLarge, color = BossGradStart)
+                            Text(it, color = TextMain)
+                        }
+                    }
+                    if (task.proofMedia.isNotEmpty()) {
+                        Text("Görev kanıtları", style = MaterialTheme.typography.titleSmall, color = TextMain)
+                        task.proofMedia.forEach { proof ->
+                            TextButton(onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        val response = ApiClient.tasksService.downloadTaskMedia(task.id, proof.id)
+                                        val bytes = if (response.isSuccessful) response.body()?.let { body ->
+                                            withContext(Dispatchers.IO) { body.bytes() }
+                                        } else null
+                                        if (!response.isSuccessful || bytes == null || bytes.isEmpty()) {
+                                            snackbar.showSnackbar("Kanıt açılamadı (${response.code()}).")
+                                        } else {
+                                            val file = withContext(Dispatchers.IO) {
+                                                val dir = File(context.cacheDir, "task-proofs").apply { mkdirs() }
+                                                File(dir, "${proof.id}.${if (proof.mediaType.startsWith("video/")) "mp4" else "jpg"}").apply { writeBytes(bytes) }
+                                            }
+                                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, proof.mediaType)
+                                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            context.startActivity(view)
+                                        }
+                                    } catch (_: Exception) {
+                                        snackbar.showSnackbar("Kanıt dosyası açılamadı.")
+                                    }
+                                }
+                            }) {
+                                androidx.compose.material3.Icon(Icons.Default.OpenInNew, null)
+                                Text(if (proof.mediaType.startsWith("video/")) "Videoyu incele" else "Fotoğrafı incele")
+                            }
+                        }
+                    } else if (task.mediaRequired) {
+                        Text("Henüz kanıt yüklenmemiş.", color = TextMuted)
+                    }
+                }
         }
     }
 

@@ -1,9 +1,12 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -13,7 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +33,7 @@ import com.lukasoft.lukarest.data.model.TaskStatus
 import com.lukasoft.lukarest.ui.components.LukaCard
 import com.lukasoft.lukarest.ui.components.PrimaryButton
 import com.lukasoft.lukarest.ui.components.TopPill
+import com.lukasoft.lukarest.ui.components.LukaFeedback
 import com.lukasoft.lukarest.ui.theme.*
 import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 import kotlinx.coroutines.launch
@@ -54,16 +58,40 @@ fun StaffTaskCompleteScreen(
     var selectedMediaKind by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    var askCameraPermission by remember { mutableStateOf(false) }
 
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        selectedUri = uri
-        selectedMediaKind = uri?.let { "photo" }
-        errorMessage = null
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) askCameraPermission = true
+        else errorMessage = "Fotoğraf çekmek için kamera izni gerekli."
     }
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
+        val uri = cameraUri
+        if (captured && uri != null) {
+            selectedUri = uri
+            selectedMediaKind = "photo"
+            errorMessage = null
+        }
+    }
+    LaunchedEffect(askCameraPermission) {
+        if (askCameraPermission) {
+            askCameraPermission = false
+            val file = java.io.File(context.cacheDir, "task-proofs").apply { mkdirs() }
+            val photo = java.io.File.createTempFile("proof_", ".jpg", file)
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photo)
+            cameraUri = uri
+            camera.launch(uri)
+        }
+    }
+
+    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         selectedUri = uri
-        selectedMediaKind = uri?.let { "video" }
-        errorMessage = null
+        selectedMediaKind = uri?.let { context.contentResolver.getType(it)?.substringBefore('/') }
+        errorMessage = when (selectedMediaKind) {
+            "image", "video" -> null
+            null -> null
+            else -> "Yalnız fotoğraf veya video seçebilirsiniz."
+        }
     }
 
     fun submitCompletion() {
@@ -84,9 +112,9 @@ fun StaffTaskCompleteScreen(
                         errorMessage = "Bu görevi tamamlamak için kanıt dosyası seçin."
                         return@launch
                     }
-                    val media = readProofFile(context, uri)
+                    val media = readProofFile(context, uri, currentTask.allowedProofType)
                     if (media == null) {
-                        errorMessage = "Dosya okunamadı veya 20 MB sınırını aşıyor."
+                        errorMessage = "Dosya okunamadı, 20 MB sınırını aşıyor ya da izin verilen kanıt türüne uymuyor."
                         return@launch
                     }
                     val body = media.bytes.toRequestBody(media.mimeType.toMediaTypeOrNull())
@@ -107,8 +135,15 @@ fun StaffTaskCompleteScreen(
                     errorMessage = "Görev tamamlanamadı (${complete.code()}): ${complete.errorBody()?.string()?.take(220).orEmpty()}"
                     return@launch
                 }
-                viewModel.updateTask(currentTask.copy(status = TaskStatus.DONE, hasMedia = currentTask.mediaRequired || currentTask.hasMedia))
-                Toast.makeText(context, "Görev tamamlandı", Toast.LENGTH_SHORT).show()
+                val completedTask = complete.body()
+                viewModel.updateTask(currentTask.copy(
+                    status = TaskStatus.DONE,
+                    description = completedTask?.description ?: currentTask.description,
+                    completionNote = completedTask?.completionNote ?: note.trim().ifBlank { null },
+                    hasMedia = completedTask?.hasMedia ?: (currentTask.mediaRequired || currentTask.hasMedia),
+                    proofMedia = completedTask?.media ?: currentTask.proofMedia
+                ))
+                LukaFeedback.show("Görev tamamlandı")
                 onNavigateBack()
             } catch (e: Exception) {
                 errorMessage = "İşlem başarısız: ${e.localizedMessage}"
@@ -153,18 +188,33 @@ fun StaffTaskCompleteScreen(
 
             if (task?.mediaRequired == true) {
                 LukaCard {
-                    Text("Kanıt dosyası zorunlu", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextMain)
+                    Text(
+                        "Zorunlu kanıt: ${when (task.allowedProofType) { "PhotoOnly" -> "fotoğraf"; "VideoOnly" -> "video"; else -> "fotoğraf veya video" }}",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMain
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
+                    val canTakePhoto = task.allowedProofType == "PhotoOnly" || task.allowedProofType == "PhotoOrVideo"
+                    val pickerMimeType = when (task.allowedProofType) {
+                        "PhotoOnly" -> "image/*"
+                        "VideoOnly" -> "video/*"
+                        else -> "*/*"
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { imagePicker.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                        if (canTakePhoto) OutlinedButton(onClick = {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                askCameraPermission = true
+                            } else cameraPermission.launch(Manifest.permission.CAMERA)
+                        }, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.CameraAlt, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
-                            Text("Fotoğraf seç")
+                            Text("Kamerayı aç")
                         }
-                        OutlinedButton(onClick = { videoPicker.launch("video/*") }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.VideoLibrary, contentDescription = null)
+                        OutlinedButton(onClick = { mediaPicker.launch(pickerMimeType) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
-                            Text("Video seç")
+                            Text(if (task.allowedProofType == "VideoOnly") "Video seç" else if (task.allowedProofType == "PhotoOnly") "Fotoğraf seç" else "Medya seç")
                         }
                     }
                     selectedUri?.let {
@@ -201,7 +251,7 @@ fun StaffTaskCompleteScreen(
 
 private data class ProofFile(val fileName: String, val mimeType: String, val bytes: ByteArray)
 
-private fun readProofFile(context: Context, uri: Uri): ProofFile? = runCatching {
+private fun readProofFile(context: Context, uri: Uri, allowedProofType: String): ProofFile? = runCatching {
     val size = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
     if (size != null && size > MAX_PROOF_BYTES) return null
     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
@@ -215,6 +265,11 @@ private fun readProofFile(context: Context, uri: Uri): ProofFile? = runCatching 
         "video/quicktime" -> "video/quicktime" to ".mov"
         else -> return null
     }
+    val isImage = mime.startsWith("image/")
+    val isVideo = mime.startsWith("video/")
+    if ((allowedProofType == "PhotoOnly" && !isImage) ||
+        (allowedProofType == "VideoOnly" && !isVideo) ||
+        (allowedProofType == "None")) return null
     val chosenName = displayName(context, uri).ifBlank { "kanıt$extension" }
     val fileName = if (chosenName.endsWith(extension, ignoreCase = true)) chosenName
         else chosenName.substringBeforeLast('.', chosenName) + extension

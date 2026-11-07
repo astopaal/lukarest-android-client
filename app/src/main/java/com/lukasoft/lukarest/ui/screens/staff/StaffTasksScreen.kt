@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,17 +17,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
-import com.lukasoft.lukarest.data.api.CompleteTaskBody
 import com.lukasoft.lukarest.data.api.toTaskItem
 import com.lukasoft.lukarest.data.model.TaskItem
 import com.lukasoft.lukarest.data.model.TaskStatus
-import com.lukasoft.lukarest.data.util.DateUtils
 import com.lukasoft.lukarest.ui.components.LukaCard
 import com.lukasoft.lukarest.ui.components.PullToRefreshBox
 import com.lukasoft.lukarest.ui.components.StatusPill
@@ -42,7 +40,6 @@ fun StaffTasksScreen(
     onNavigateToTaskComplete: (String) -> Unit,
     onLogout: () -> Unit
 ) {
-    val context = LocalContext.current
     val tasks by viewModel.tasks.collectAsState()
     var selectedFilter by remember { mutableStateOf("all") } // "all", "pending", "done"
 
@@ -63,7 +60,7 @@ fun StaffTasksScreen(
                 if (res.isSuccessful && res.body() != null) {
                     viewModel.setTasks(res.body()!!.tasks.map { it.toTaskItem("me") })
                 } else {
-                    Toast.makeText(context, "Görevler alınamadı (${res.code()})", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Görevler alınamadı (${res.code()})")
                 }
             } catch (_: Exception) {
             } finally {
@@ -74,23 +71,6 @@ fun StaffTasksScreen(
     }
 
     LaunchedEffect(Unit) { refreshStaffTasks() }
-
-    fun completeTask(task: TaskItem) {
-        if (task.status == TaskStatus.DONE) return
-        if (task.mediaRequired) {
-            onNavigateToTaskComplete(task.id)
-            return
-        }
-        coroutineScope.launch {
-            try {
-                val response = ApiClient.tasksService.completeTask(task.id, CompleteTaskBody(completionNote = null))
-                if (response.isSuccessful) refreshStaffTasks()
-                else Toast.makeText(context, "Görev tamamlanamadı (${response.code()})", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Görev tamamlanamadı: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -162,7 +142,7 @@ fun StaffTasksScreen(
                 items(filteredTasks) { task ->
                     TaskCardItem(
                         task = task,
-                        onToggle = { completeTask(task) },
+                        onToggle = { onNavigateToTaskComplete(task.id) },
                         onCompleteWithMedia = { onNavigateToTaskComplete(task.id) }
                     )
                 }
@@ -193,7 +173,7 @@ fun TaskCardItem(
                     .size(26.dp)
                     .clip(CircleShape)
                     .background(if (isDone) StaffGradStart else Color.Transparent)
-                    .clickable { onToggle() },
+                    .clickable(enabled = !isDone) { onToggle() },
                 contentAlignment = Alignment.Center
             ) {
                 if (isDone) {
@@ -222,6 +202,10 @@ fun TaskCardItem(
                     fontWeight = FontWeight.SemiBold,
                     color = if (isDone) TextMuted else TextMain,
                     textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
+                task.description?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(Modifier.height(3.dp))
+                    Text(it, fontSize = 12.sp, color = TextSoft, maxLines = 2)
+                }
                 )
                 Text(
                     text = "${task.startTime}${if (task.endTime != null) " — ${task.endTime}" else ""}",

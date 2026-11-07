@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
 import com.lukasoft.lukarest.data.api.AttendanceDayDto
-import com.lukasoft.lukarest.data.api.CompleteTaskBody
 import com.lukasoft.lukarest.data.api.MyShiftDayDto
 import com.lukasoft.lukarest.data.api.toTaskItem
 import com.lukasoft.lukarest.data.model.TaskStatus
@@ -96,12 +96,12 @@ fun StaffTodayScreen(
                 val res = ApiClient.attendanceService.clockIn()
                 if (res.isSuccessful && res.body() != null) {
                     attendanceData = res.body()
-                    Toast.makeText(context, "Vardiyaya giriş yapıldı!", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Vardiyaya giriş yapıldı!")
                 } else {
-                    Toast.makeText(context, "Giriş yapılamadı: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Giriş yapılamadı: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             } finally {
                 isAttendanceActionLoading = false
                 loadTodayData()
@@ -116,12 +116,12 @@ fun StaffTodayScreen(
                 val res = ApiClient.attendanceService.clockOut()
                 if (res.isSuccessful && res.body() != null) {
                     attendanceData = res.body()
-                    Toast.makeText(context, "Vardiya tamamlandı!", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Vardiya tamamlandı!")
                 } else {
-                    Toast.makeText(context, "Çıkış yapılamadı: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Çıkış yapılamadı: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             } finally {
                 isAttendanceActionLoading = false
                 loadTodayData()
@@ -136,12 +136,12 @@ fun StaffTodayScreen(
                 val res = ApiClient.attendanceService.startBreak()
                 if (res.isSuccessful && res.body() != null) {
                     attendanceData = res.body()
-                    Toast.makeText(context, "Mola başladı!", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Mola başladı!")
                 } else {
-                    Toast.makeText(context, "Mola başlatılamadı: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Mola başlatılamadı: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             } finally {
                 isAttendanceActionLoading = false
                 loadTodayData()
@@ -156,12 +156,12 @@ fun StaffTodayScreen(
                 val res = ApiClient.attendanceService.endBreak()
                 if (res.isSuccessful && res.body() != null) {
                     attendanceData = res.body()
-                    Toast.makeText(context, "Mola bitti!", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Mola bitti!")
                 } else {
-                    Toast.makeText(context, "Mola bitirilemedi: ${res.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Mola bitirilemedi: ${res.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage}")
             } finally {
                 isAttendanceActionLoading = false
                 loadTodayData()
@@ -171,22 +171,6 @@ fun StaffTodayScreen(
 
     LaunchedEffect(Unit) {
         loadTodayData()
-    }
-
-    fun handleCompleteTask(taskId: String) {
-        coroutineScope.launch {
-            try {
-                val res = ApiClient.tasksService.completeTask(taskId, CompleteTaskBody(completionNote = "Mobil tamamlandı"))
-                if (res.isSuccessful) {
-                    Toast.makeText(context, "Görev tamamlandı!", Toast.LENGTH_SHORT).show()
-                    loadTodayData()
-                } else {
-                    Toast.makeText(context, "Görev güncellenemedi (${res.code()}): ${res.errorBody()?.string()?.take(180).orEmpty()}", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 
     val completedCount = todayTasks.count { it.status == TaskStatus.DONE }
@@ -471,11 +455,7 @@ fun StaffTodayScreen(
                                     .background(if (isDone) StaffGradStart else Color.Transparent)
                                     .clickable {
                                         if (!isDone) {
-                                            if (task.mediaRequired) {
-                                                onNavigateToTaskComplete(task.id)
-                                            } else {
-                                                handleCompleteTask(task.id)
-                                            }
+                                            onNavigateToTaskComplete(task.id)
                                         }
                                     },
                                 contentAlignment = Alignment.Center
@@ -512,6 +492,10 @@ fun StaffTodayScreen(
                                     fontSize = 12.sp,
                                     color = TextMuted
                                 )
+                            task.description?.takeIf { it.isNotBlank() }?.let {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(it, fontSize = 12.sp, color = TextSoft, maxLines = 2)
+                            }
                             }
 
                             if (task.mediaRequired) {

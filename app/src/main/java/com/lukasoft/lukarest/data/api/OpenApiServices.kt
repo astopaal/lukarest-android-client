@@ -239,11 +239,23 @@ data class CreateTaskDefinitionCommand(
 data class TaskExecutionDto(
     @SerializedName("id") val id: String,
     @SerializedName("title") val title: String,
+    @SerializedName("description") val description: String? = null,
     @SerializedName("startTime") val startTime: String?,
     @SerializedName("endTime") val endTime: String?,
     @SerializedName("status") val status: String,
     @SerializedName("requiresMediaProof") val requiresMediaProof: Boolean,
-    @SerializedName("hasMedia") val hasMedia: Boolean = false
+    @SerializedName("allowedProofType") val allowedProofType: String = "None",
+    @SerializedName("hasMedia") val hasMedia: Boolean = false,
+    @SerializedName("completionNote") val completionNote: String? = null,
+    @SerializedName("media") val media: List<TaskMediaDto> = emptyList()
+)
+
+data class TaskMediaDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("mediaUrl") val mediaUrl: String,
+    @SerializedName("mediaType") val mediaType: String,
+    @SerializedName("fileSizeBytes") val fileSizeBytes: Long,
+    @SerializedName("uploadedAtUtc") val uploadedAtUtc: String
 )
 
 data class MyTasksResponseDto(
@@ -265,14 +277,6 @@ data class BossTaskOverviewDto(
     @SerializedName("completedCount") val completedCount: Int,
     @SerializedName("lateCount") val lateCount: Int,
     @SerializedName("staff") val staff: List<StaffTaskGroupDto>
-)
-
-data class TaskMediaDto(
-    @SerializedName("id") val id: String,
-    @SerializedName("mediaUrl") val mediaUrl: String,
-    @SerializedName("mediaType") val mediaType: String,
-    @SerializedName("fileSizeBytes") val fileSizeBytes: Long,
-    @SerializedName("uploadedAtUtc") val uploadedAtUtc: String
 )
 
 data class CompleteTaskBody(
@@ -304,6 +308,10 @@ interface TasksService {
 
     @POST("/api/v1/tasks/executions/{id}/complete")
     suspend fun completeTask(@Path("id") id: String, @Body body: CompleteTaskBody): Response<TaskExecutionDto>
+
+    @GET("/api/v1/tasks/executions/{id}/media/{mediaId}")
+    @Streaming
+    suspend fun downloadTaskMedia(@Path("id") id: String, @Path("mediaId") mediaId: String): Response<okhttp3.ResponseBody>
 
     @Multipart
     @POST("/api/v1/tasks/executions/{id}/media")
