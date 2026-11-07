@@ -21,6 +21,7 @@ sealed class Screen(val route: String) {
     data object BossDashboard : Screen("boss/dashboard")
     data object BossCompanySetup : Screen("boss/company/setup")
     data object BossStaffScan : Screen("boss/staff/scan")
+    data object BossBranches : Screen("boss/branches")
     data object BossShifts : Screen("boss/shifts")
     data object BossAddShift : Screen("boss/shifts/add")
     data object BossTasks : Screen("boss/tasks")

@@ -33,7 +33,8 @@ fun TopPill(
     gradient: Brush = StaffGradient,
     actionIcon: ImageVector = Icons.AutoMirrored.Filled.Logout,
     onActionClick: () -> Unit = {},
-    showAction: Boolean = true
+    showAction: Boolean = true,
+    actionDescription: String = "Action"
 ) {
     Box(
         modifier = modifier
@@ -102,7 +103,7 @@ fun TopPill(
                 ) {
                     Icon(
                         imageVector = actionIcon,
-                        contentDescription = "Action",
+                        contentDescription = actionDescription,
                         tint = White,
                         modifier = Modifier.size(18.dp)
                     )

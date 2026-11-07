@@ -1,27 +1,45 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import kotlinx.coroutines.Job
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
 import com.lukasoft.lukarest.data.api.BranchDto
+import com.lukasoft.lukarest.data.api.ShiftMatrixResponse
+import com.lukasoft.lukarest.data.api.ShiftMatrixCellDto
 import com.lukasoft.lukarest.data.api.SwitchBranchCommand
 import com.lukasoft.lukarest.data.api.TimesheetRowDto
 import com.lukasoft.lukarest.data.api.UpcomingBirthdayDto
@@ -32,22 +50,33 @@ import com.lukasoft.lukarest.data.util.DateUtils
 import com.lukasoft.lukarest.ui.components.LukaCard
 import com.lukasoft.lukarest.ui.components.PullToRefreshBox
 import com.lukasoft.lukarest.ui.components.TopPill
+import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.theme.*
 import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 @Composable
 fun BossDashboardScreen(
     viewModel: LukaViewModel,
     onNavigateToRequests: () -> Unit,
     onNavigateToStaff: () -> Unit,
+    onNavigateToBranches: () -> Unit = {},
     onNavigateToNotes: () -> Unit = {},
+    onNavigateToShifts: () -> Unit,
+    onNavigateToTasks: () -> Unit,
     onLogout: () -> Unit
 ) {
     val staffList by viewModel.staffList.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val activeBranchName by AuthStore.activeBranchName.collectAsState()
     val activeBranchId by AuthStore.activeBranchId.collectAsState()
+    val weekStart = DateUtils.getCurrentWeekMonday()
+    val days = remember(weekStart) { DateUtils.getWeekDays(weekStart) }
+    var matrix by remember(activeBranchId, weekStart) { mutableStateOf<ShiftMatrixResponse?>(null) }
+    var matrixFailed by remember(activeBranchId, weekStart) { mutableStateOf(false) }
+    var expandedPerson by remember(activeBranchId, weekStart) { mutableStateOf<String?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
 
     var timesheet by remember { mutableStateOf<List<TimesheetRowDto>>(emptyList()) }
     var upcomingBirthdays by remember { mutableStateOf<List<UpcomingBirthdayDto>>(emptyList()) }
@@ -68,6 +97,18 @@ fun BossDashboardScreen(
         dashboardJob = coroutineScope.launch {
             isRefreshing = true
             try {
+                matrixFailed = false
+                try {
+                    val response = ApiClient.shiftsService.getMatrix(weekStart)
+                    val plan = response.body()
+                    if (response.isSuccessful && plan != null) {
+                        matrix = plan
+                    } else {
+                        matrixFailed = true
+                    }
+                } catch (_: IOException) {
+                    matrixFailed = true
+                }
                 val today = DateUtils.getTurkeyTodayIso()
 
                 // 1) Şubedeki güncel görevleri çek
@@ -161,7 +202,8 @@ fun BossDashboardScreen(
         }
     }
 
-    LaunchedEffect(activeBranchId) {
+    LaunchedEffect(activeBranchId, weekStart) {
+        branches = emptyList()
         timesheet = emptyList()
         upcomingBirthdays = emptyList()
         pendingReqCount = 0
@@ -182,9 +224,64 @@ fun BossDashboardScreen(
                     subtitle = activeBranchName ?: "Şube seç",
                     initials = "P",
                     gradient = BossGradient,
-                    actionIcon = Icons.AutoMirrored.Filled.Logout,
-                    onActionClick = onLogout
+                    actionIcon = Icons.Default.Menu,
+                    actionDescription = "Yönetim menüsünü aç",
+                    onActionClick = { menuOpen = true }
                 )
+                Box(Modifier.align(Alignment.BottomEnd).width(48.dp)) {
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        modifier = Modifier.width(248.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = White,
+                        border = BorderStroke(1.dp, BorderSoft)
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .padding(horizontal = 8.dp)
+                                .background(PillBlue.bg, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text("Yönetim menüsü", style = MaterialTheme.typography.titleSmall, color = BossGradStart)
+                            Text(
+                                activeBranchName ?: "Aktif şube seçilmedi",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSoft,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        val destinations = listOf(
+                            Triple("Vardiyalar", Icons.Default.CalendarMonth, onNavigateToShifts),
+                            Triple("Görevler", Icons.Default.TaskAlt, onNavigateToTasks),
+                            Triple("Talepler", Icons.Default.ListAlt, onNavigateToRequests),
+                            Triple("Personel yönetimi", Icons.Default.People, onNavigateToStaff),
+                            Triple("Operasyon defteri", Icons.Default.Description, onNavigateToNotes)
+                        )
+                        destinations.forEach { (label, icon, navigate) ->
+                            DashboardMenuItem(label, icon) {
+                                menuOpen = false
+                                navigate()
+                            }
+                        }
+                        DashboardMenuItem("Şubeleri yönet", Icons.Default.Storefront) {
+                            menuOpen = false
+                            onNavigateToBranches()
+                        }
+                        HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = BorderSoft)
+                        DashboardMenuItem("Şube değiştir", Icons.Default.Storefront) {
+                            menuOpen = false
+                            branchError = null
+                            showBranchDialog = true
+                        }
+                        if (AuthStore.globalRole.collectAsState().value == "CompanyOwner") DashboardMenuItem("Çıkış yap", Icons.AutoMirrored.Filled.Logout, destructive = true) {
+                            menuOpen = false
+                            onLogout()
+                        }
+                    }
+                }
             }
         },
         containerColor = BgScreenTop
@@ -202,6 +299,127 @@ fun BossDashboardScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+            val plan = matrix
+            val people = plan?.rows.orEmpty()
+            val cellsByDay = people.flatMap { it.cells }.groupBy { it.date }
+            val plannedCounts = plan?.days.orEmpty().associate { it.date to it.activeStaffCount }
+            val today = DateUtils.getTurkeyTodayIso()
+            item {
+                LukaCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(36.dp).background(PillBlue.bg, RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.CalendarMonth, null, Modifier.size(20.dp), tint = PillBlue.fg)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Haftalık vardiya planı", style = MaterialTheme.typography.titleMedium, color = BossGradStart)
+                            Text("Pazartesi – Pazar", color = TextMuted, fontSize = 12.sp)
+                        }
+                    }
+                    if (matrixFailed) {
+                        Text("Vardiya planı güncellenemedi.", color = PillErr.fg)
+                        TextButton(onClick = { refreshDashboard() }) { Text("Tekrar dene") }
+                    }
+                    if (plan == null && !matrixFailed) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth(), color = BossGradStart)
+                    }
+                    if (plan != null) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            days.forEach { day ->
+                                val count = plannedCounts[day.isoDate]
+                                    ?: cellsByDay[day.isoDate].orEmpty().count { it.hasPlannedShift() }
+                                val isToday = day.isoDate == today
+                                val colors = if (count > 0) PillBlue else PillNeutral
+                                Surface(
+                                    modifier = Modifier.weight(1f).clearAndSetSemantics {
+                                        val prefix = if (isToday) "Bugün, " else ""
+                                        contentDescription = "$prefix${day.dayName}, $count kişi planlı"
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = colors.bg,
+                                    contentColor = colors.fg,
+                                    border = if (isToday) BorderStroke(1.dp, BossGradEnd) else null
+                                ) {
+                                    Column(
+                                        Modifier.padding(vertical = 7.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(day.dayName, style = MaterialTheme.typography.labelSmall)
+                                        Text("$count", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) {
+                            if (plan != null) Text("Günlük planlı kişi sayısı", color = TextMuted, fontSize = 12.sp)
+                        }
+                        TextButton(
+                            onClick = onNavigateToShifts,
+                            colors = ButtonDefaults.textButtonColors(contentColor = BtnGradStart)
+                        ) { Text("Planı aç") }
+                    }
+                }
+            }
+
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Personeller", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = BossGradStart)
+                    if (plan != null) StatusPill("${people.size} kişi", pillColor = PillNeutral)
+                }
+                if (plan != null && people.isEmpty()) Text("Bu şubede listelenecek personel yok.", color = TextMuted)
+            }
+            items(people, key = { it.userId }) { person ->
+                val expanded = expandedPerson == person.userId
+                LukaCard(contentPadding = PaddingValues(0.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable(onClickLabel = if (expanded) "Vardiyaları gizle" else "Vardiyaları göster") {
+                                expandedPerson = if (expanded) null else person.userId
+                            }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val initials = person.fullName.split(' ').filter { it.isNotBlank() }
+                            .take(2).joinToString("") { it.take(1) }
+                            .uppercase(java.util.Locale.forLanguageTag("tr-TR"))
+                        Box(
+                            Modifier.size(36.dp).background(PillBlue.bg, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(initials, color = PillBlue.fg, style = MaterialTheme.typography.labelLarge)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(person.fullName, color = TextMain, fontWeight = FontWeight.SemiBold)
+                            Text("${person.cells.count { it.hasPlannedShift() }} vardiya", color = TextMuted, fontSize = 12.sp)
+                        }
+                        Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = BossGradStart)
+                    }
+                    if (expanded) {
+                        val cells = person.cells.associateBy { it.date }
+                        Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                            days.forEach { day ->
+                                HorizontalDivider(color = BorderSoft)
+                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                    Text(day.dayName, Modifier.weight(1f), color = TextMain)
+                                    val cell = cells[day.isoDate]
+                                    when {
+                                        cell?.isOffDay == true -> StatusPill("İzinli", pillColor = PillNeutral)
+                                        cell?.hasPlannedShift() == true -> StatusPill(cell.dashboardLabel(), pillColor = PillBlue)
+                                        else -> Text("Planlanmadı", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 Text("Bugün", style = MaterialTheme.typography.titleMedium, color = BossGradStart)
             }
@@ -329,6 +547,37 @@ fun BossDashboardScreen(
         )
     }
 }
+}
+
+@Composable
+private fun DashboardMenuItem(
+    label: String,
+    icon: ImageVector,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+        leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+        colors = MenuDefaults.itemColors(
+            textColor = if (destructive) PillErr.fg else TextMain,
+            leadingIconColor = if (destructive) PillErr.fg else PillBlue.fg
+        ),
+        onClick = onClick
+    )
+}
+
+private fun ShiftMatrixCellDto.hasPlannedShift(): Boolean =
+    !isOffDay && (shiftTemplateId != null || shiftInstanceId != null || customStartTime != null || startTime != null)
+
+private fun ShiftMatrixCellDto?.dashboardLabel(): String {
+    if (this == null) return "Planlanmadı"
+    if (isOffDay) return "İzinli"
+    if (!hasPlannedShift()) return "Planlanmadı"
+    val start = (customStartTime ?: startTime)?.take(5)
+    val end = (customEndTime ?: endTime)?.take(5)
+    return listOfNotNull(shortCode?.takeIf { it.isNotBlank() }, if (start != null && end != null) "$start – $end" else null)
+        .joinToString(" · ").ifEmpty { "Vardiya" }
 }
 
 

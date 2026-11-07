@@ -293,7 +293,10 @@ fun AppNavigation(
                                 popUpTo(0) { inclusive = true }
                             }
                         }
+                    onNavigateToBranches = { navController.navigate(Screen.BossBranches.route) },
                     }
+                    onNavigateToShifts = { navController.navigate(Screen.BossShifts.route) },
+                    onNavigateToTasks = { navController.navigate(Screen.BossTasks.route) },
                 )
             }
 
@@ -309,6 +312,10 @@ fun AppNavigation(
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
                 )
+            }
+
+            composable(Screen.BossBranches.route) {
+                BranchManagementScreen(onBack = { navController.popBackStack() })
             }
 
             // ── Boss Ekranları ──

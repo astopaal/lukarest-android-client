@@ -3,6 +3,8 @@ package com.lukasoft.lukarest.ui.screens.boss
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,6 +17,10 @@ import com.lukasoft.lukarest.data.api.ChangeStaffRoleBody
 import com.lukasoft.lukarest.data.api.StaffDetailDto
 import com.lukasoft.lukarest.data.api.StaffItemDto
 import com.lukasoft.lukarest.data.store.AuthStore
+import com.lukasoft.lukarest.ui.components.PullToRefreshBox
+import com.lukasoft.lukarest.ui.components.TopPill
+import com.lukasoft.lukarest.ui.theme.BgScreenTop
+import com.lukasoft.lukarest.ui.theme.BossGradient
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -31,6 +37,7 @@ fun StaffManagementScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var branches by remember { mutableStateOf(emptyList<BranchDto>()) }
     var busy by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     fun perform(action: suspend () -> Unit) {
         if (busy) return
@@ -57,10 +64,40 @@ fun StaffManagementScreen(onBack: () -> Unit) {
         }
     }
 
-    LazyColumn(contentPadding = PaddingValues(16.dp)) {
+    Scaffold(
+        containerColor = BgScreenTop,
+        topBar = {
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                TopPill(
+                    title = "Personel yönetimi",
+                    subtitle = AuthStore.activeBranchName.collectAsState().value.orEmpty(),
+                    initials = "P",
+                    gradient = BossGradient,
+                    actionIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                    actionDescription = "Geri",
+                    onActionClick = onBack
+                )
+            }
+        }
+    ) { padding ->
+      PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            scope.launch {
+                isRefreshing = true
+                try {
+                    val result = service.getStaff(includeInactive)
+                    if (result.isSuccessful) staff = result.body().orEmpty()
+                    else error = "Personel listesi alınamadı."
+                } catch (_: IOException) { error = "Sunucuya ulaşılamadı." }
+                finally { isRefreshing = false }
+            }
+        },
+        modifier = Modifier.fillMaxSize().padding(padding)
+      ) {
+       LazyColumn(contentPadding = PaddingValues(16.dp)) {
         item {
-            TextButton(onClick = onBack) { Text("Geri") }
-            Text("Personel yönetimi · " + AuthStore.activeBranchName.collectAsState().value.orEmpty(), style = MaterialTheme.typography.headlineSmall)
+            Text("Personel yönetimi", style = MaterialTheme.typography.headlineSmall)
             Row {
                 Checkbox(includeInactive, { includeInactive = it })
                 Text("Pasif personeli göster", modifier = Modifier.padding(top = 12.dp))
@@ -76,6 +113,8 @@ fun StaffManagementScreen(onBack: () -> Unit) {
                 }
             }) { Text(person.fullName + if (person.isActive) "" else " (pasif)") }
         }
+       }
+      }
     }
 
     detail?.let { card ->
