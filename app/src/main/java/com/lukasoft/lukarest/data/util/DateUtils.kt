@@ -6,6 +6,21 @@ import java.util.Date
 import java.util.Locale
 
 object DateUtils {
+    fun weekLabel(weekStart: String): String {
+        val format = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        val selected = format.parse(weekStart) ?: return "Haftalık plan"
+        val current = format.parse(getCurrentWeekMonday()) ?: return "Haftalık plan"
+        val offset = ((selected.time - current.time) / (7L * 24 * 60 * 60 * 1000)).toInt()
+        return when (offset) {
+            0 -> "Bu hafta"
+            1 -> "Gelecek hafta"
+            -1 -> "Geçen hafta"
+            else -> if (offset > 0) "$offset hafta sonra" else "${-offset} hafta önce"
+        }
+    }
+
     private val trLocale = Locale.forLanguageTag("tr-TR")
     private val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     private val displayFormat = SimpleDateFormat("dd MMM", trLocale)

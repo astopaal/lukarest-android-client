@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
-import android.widget.Toast
+import com.lukasoft.lukarest.ui.components.LukaFeedback
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,10 +66,10 @@ fun StaffShiftsScreen(
                     completedHours = body.completedHours
                     remainingHours = body.remainingHours
                 } else {
-                    Toast.makeText(context, "Vardiyalar alınamadı: ${sRes.code()}", Toast.LENGTH_SHORT).show()
+                    LukaFeedback.show("Vardiyalar alınamadı: ${sRes.code()}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Hata: ${e.localizedMessage ?: "Vardiyalar alınamadı"}", Toast.LENGTH_SHORT).show()
+                LukaFeedback.show("Hata: ${e.localizedMessage ?: "Vardiyalar alınamadı"}")
             } finally {
                 isLoading = false
             }
@@ -141,7 +142,7 @@ fun StaffShiftsScreen(
                         }
 
                         Text(
-                            text = "${weekDays.first().displayDate} - ${weekDays.last().displayDate}",
+                            text = DateUtils.weekLabel(weekStartDate),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = StaffGradStart
@@ -274,11 +275,6 @@ fun StaffShiftsScreen(
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextMain
-                                    )
-                                    Text(
-                                        text = day.displayDate,
-                                        fontSize = 12.sp,
-                                        color = TextMuted
                                     )
                                 }
 

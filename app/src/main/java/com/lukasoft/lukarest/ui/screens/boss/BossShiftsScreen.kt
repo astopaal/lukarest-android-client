@@ -1,11 +1,9 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
-import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -33,6 +32,8 @@ import com.lukasoft.lukarest.data.api.*
 import com.lukasoft.lukarest.data.store.AuthStore
 import com.lukasoft.lukarest.data.util.DateUtils
 import com.lukasoft.lukarest.ui.components.LukaCard
+import com.lukasoft.lukarest.ui.components.LukaSnackbarHost
+import com.lukasoft.lukarest.ui.components.PullToRefreshBox
 import com.lukasoft.lukarest.ui.components.PrimaryButton
 import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.components.TopPill
@@ -75,17 +76,36 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var week by remember { mutableStateOf(DateUtils.getCurrentWeekMonday()) }
+    var latestWeek by remember { mutableStateOf(DateUtils.getCurrentWeekMonday()) }
+    var latestWeekLoaded by remember { mutableStateOf(false) }
     val days = remember(week) { DateUtils.getWeekDays(week) }
-    val dateRange = "${days.first().displayDate} – ${days.last().displayDate}"
+    val dateRange = DateUtils.weekLabel(week)
     var revision by remember { mutableIntStateOf(0) }
     var matrix by remember(week, revision) { mutableStateOf<ShiftMatrixResponse?>(null) }
     var templates by remember(week, revision) { mutableStateOf(emptyList<ShiftTemplateDto>()) }
     var loadError by remember(week, revision) { mutableStateOf<String?>(null) }
     var panel by remember { mutableStateOf<ShiftPanel?>(null) }
     var saving by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var actionError by remember(panel) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(week, revision) {
+    LaunchedEffect(Unit) {
+        try {
+            val latest = service.getLatestMatrix()
+            latest.body()?.weekStartDate?.let {
+                week = it
+                latestWeek = it
+            }
+        } catch (_: IOException) {
+            loadError = "Son planlanan hafta alınamadı."
+        } finally {
+            latestWeekLoaded = true
+        }
+    }
+
+    LaunchedEffect(week, revision, latestWeekLoaded) {
+        if (!latestWeekLoaded) return@LaunchedEffect
+        loadError = null
         try {
             val plan = service.getMatrix(week)
             val options = service.getTemplates()
@@ -97,6 +117,8 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
             }
         } catch (_: IOException) {
             loadError = "Bağlantı kurulamadı. Tekrar deneyin."
+        } finally {
+            isRefreshing = false
         }
     }
 
@@ -109,6 +131,7 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
                 val result = request()
                 if (result.isSuccessful) {
                     panel = null
+                    if (week > latestWeek) latestWeek = week
                     revision++
                     if (result.body() is Int) "${result.body()} gün güncellendi." else message
                 } else {
@@ -130,7 +153,7 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
         modifier = Modifier.background(
             androidx.compose.ui.graphics.Brush.verticalGradient(listOf(BgScreenTop, BgScreenBot))
         ),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { LukaSnackbarHost(snackbar) },
         topBar = {
             Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 TopPill(
@@ -144,31 +167,22 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
             }
         }
     ) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { isRefreshing = true; revision++ },
+            modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-            LukaCard(contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { week = DateUtils.addWeeks(week, -1) }) {
-                        Icon(Icons.Default.ChevronLeft, "Önceki hafta", tint = BossGradStart)
-                    }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Haftalık görünüm", style = MaterialTheme.typography.labelSmall, color = TextMuted)
-                        Text(dateRange, style = MaterialTheme.typography.titleMedium,
-                            textAlign = TextAlign.Center, color = BossGradStart)
-                    }
-                    IconButton(onClick = { week = DateUtils.addWeeks(week, 1) }) {
-                        Icon(Icons.Default.ChevronRight, "Sonraki hafta", tint = BossGradStart)
-                    }
-                }
-            }
+          Column(
+            Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+          ) {
+            Text(dateRange, style = MaterialTheme.typography.titleMedium, color = BossGradStart)
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Hücreye dokunarak düzenle. Diğer günler için tabloyu kaydır.", Modifier.weight(1f),
+                Text("Yedi gün tek bakışta. Düzenlemek için bir güne dokun.", Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall, color = TextSoft)
                 OutlinedButton(enabled = matrix != null, onClick = { panel = ShiftPanel.Tools }) {
                     Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -192,6 +206,7 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
                     onPerson = { panel = ShiftPanel.Repeat(it) }
                 )
             }
+          }
         }
     }
 
@@ -245,6 +260,18 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
                             ChoiceRow("Toplu vardiya ata", "Seçilen ekibe aynı vardiyayı yaz.", false, true) {
                                 panel = ShiftPanel.Bulk
                             }
+                            ChoiceRow("Sonraki haftayı planla", "Bir sonraki haftanın yedi günlük planını aç.", false, true) {
+                                week = DateUtils.addWeeks(week, 1)
+                                panel = null
+                            }
+                            ChoiceRow("Önceki haftayı aç", "Bir önceki haftanın planını incele.", false, true) {
+                                week = DateUtils.addWeeks(week, -1)
+                                panel = null
+                            }
+                            ChoiceRow("Son planlanan haftayı aç", "Sunucudaki en ileri haftaya dön.", false, true) {
+                                week = latestWeek
+                                panel = null
+                            }
                             ChoiceRow("Haftayı yenile", "Sunucudaki son planı getir.", false, true) {
                                 panel = null
                                 revision++
@@ -269,78 +296,51 @@ private fun ShiftGrid(
     onCell: (ShiftMatrixRowDto, DateUtils.DayInfo) -> Unit,
     onPerson: (ShiftMatrixRowDto) -> Unit
 ) {
-    val dayWidth = 52.dp
-    val teamWidth = 104.dp
     val counts = plan.days.associateBy { it.date }
-    val today = DateUtils.getTurkeyTodayIso()
-    LukaCard(contentPadding = PaddingValues(0.dp)) {
-        Box(Modifier.horizontalScroll(rememberScrollState())) {
-            Column(Modifier.width(teamWidth + dayWidth * days.size.toFloat())) {
-                Row(Modifier.background(BossGradient), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ekip", Modifier.width(teamWidth).padding(12.dp), color = White,
-                        style = MaterialTheme.typography.titleSmall)
-                    days.forEach { day ->
-                        Column(
-                            Modifier.width(dayWidth).heightIn(min = 58.dp).padding(vertical = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text("${day.dayName} ${day.dayNumber}", style = MaterialTheme.typography.labelMedium,
-                                color = White)
-                            val count = "${counts[day.isoDate]?.activeStaffCount ?: 0} kişi"
-                            if (day.isoDate == today) StatusPill(count)
-                            else Text(count, style = MaterialTheme.typography.labelSmall, color = PillBlue.bg)
-                        }
-                    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(BossGradient).padding(horizontal = 10.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            days.forEach { day ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(day.dayName, style = MaterialTheme.typography.labelMedium, color = White, maxLines = 1)
+                    Text("${counts[day.isoDate]?.activeStaffCount ?: 0}", style = MaterialTheme.typography.labelSmall, color = PillBlue.bg)
                 }
-                LazyColumn {
-                    items(plan.rows, key = { it.userId }) { person ->
-                        val cells = person.cells.associateBy { it.date }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(
-                                Modifier.width(teamWidth).heightIn(min = 56.dp)
-                                    .clickable { onPerson(person) }.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(person.fullName, style = MaterialTheme.typography.labelLarge, color = TextMain,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text("Düzen seç", style = MaterialTheme.typography.labelSmall, color = BossGradStart)
-                            }
-                            days.forEach { day ->
-                                val cell = cells[day.isoDate]
-                                val filled = cell?.shiftInstanceId != null
-                                val colors = when {
-                                    cell?.isOffDay == true -> ShiftIzin
-                                    !filled -> ShiftEmpty
-                                    cell?.shortCode.isNullOrBlank() && cell?.colorHex.isNullOrBlank() -> ShiftOzel
-                                    else -> {
-                                        val accent = parseShiftColor(cell?.colorHex)
-                                        ShiftColor(accent.copy(alpha = 0.13f), TextMain, accent.copy(alpha = 0.36f))
-                                    }
+            }
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            items(plan.rows, key = { it.userId }) { person ->
+                val cells = person.cells.associateBy { it.date }
+                LukaCard(contentPadding = PaddingValues(10.dp)) {
+                    Row(Modifier.fillMaxWidth().clickable { onPerson(person) }.padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(person.fullName, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = TextMain)
+                        Text("Haftalık ata", style = MaterialTheme.typography.labelMedium, color = BossGradStart)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        days.forEach { day ->
+                            val cell = cells[day.isoDate]
+                            val filled = cell?.shiftInstanceId != null
+                            val colors = when {
+                                cell?.isOffDay == true -> ShiftIzin
+                                !filled -> ShiftEmpty
+                                else -> {
+                                    val accent = parseShiftColor(cell?.colorHex)
+                                    ShiftColor(accent.copy(alpha = 0.13f), TextMain, accent.copy(alpha = 0.36f))
                                 }
-                                Surface(
-                                    onClick = { onCell(person, day) },
-                                    color = colors.bg,
-                                    border = BorderStroke(1.dp, colors.border),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.width(dayWidth).height(52.dp).padding(3.dp)
-                                        .semantics { contentDescription = "${person.fullName}, ${day.displayDate}: ${cellSummary(cell)}" }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            when {
-                                                cell?.isOffDay == true -> "İzin"
-                                                !filled -> "+"
-                                                else -> cell?.shortCode?.takeIf { it.isNotBlank() } ?: cell?.startTime?.take(5) ?: "Vardiya"
-                                            },
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
+                            }
+                            Surface(
+                                onClick = { onCell(person, day) }, color = colors.bg,
+                                border = BorderStroke(1.dp, colors.border), shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f).height(48.dp)
+                                    .semantics { contentDescription = "${person.fullName}, ${day.dayName}: ${cellSummary(cell)}" }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(when {
+                                        cell?.isOffDay == true -> "İzin"
+                                        !filled -> "+"
+                                        else -> cell?.shortCode?.takeIf { it.isNotBlank() } ?: "V"
+                                    }, style = MaterialTheme.typography.labelSmall, color = colors.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
-                        HorizontalDivider(color = BgBoard)
                     }
                 }
             }
@@ -373,7 +373,7 @@ private fun CellEditor(
     var start by remember { mutableStateOf(initialStart) }
     var end by remember { mutableStateOf(initialEnd) }
 
-    SheetHeading(panel.person.fullName, "${panel.day.dayName}, ${panel.day.displayDate} · ${cellSummary(current)}")
+    SheetHeading(panel.person.fullName, "${panel.day.dayName} · ${cellSummary(current)}")
     templates.forEach { template ->
         ChoiceRow(template.name, timeRange(template.startTime, template.endTime), selection == template.id, !saving) {
             selection = template.id
@@ -433,7 +433,7 @@ private fun BulkEditor(
     onSave: (BulkAssignShiftsCommand) -> Unit
 ) {
     var templateId by remember { mutableStateOf<String?>(null) }
-    var weekdaysOnly by remember { mutableStateOf(true) }
+    var weekdaysOnly by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var showPreview by remember { mutableStateOf(false) }
     val template = templates.firstOrNull { it.id == templateId }
@@ -452,8 +452,8 @@ private fun BulkEditor(
             ChoiceRow(it.name, timeRange(it.startTime, it.endTime), templateId == it.id, true) { templateId = it.id }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(weekdaysOnly, { weekdaysOnly = true }, label = { Text("Hafta içi") })
-            FilterChip(!weekdaysOnly, { weekdaysOnly = false }, label = { Text("Tüm hafta") })
+            FilterChip(!weekdaysOnly, { weekdaysOnly = false }, label = { Text("7 gün · önerilen") })
+            FilterChip(weekdaysOnly, { weekdaysOnly = true }, label = { Text("Hafta içi · 5 gün") })
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Personel · ${selected.size} seçili", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
@@ -507,9 +507,8 @@ private fun RepeatEditor(
     var chosen by remember { mutableStateOf<ShiftCycleDto?>(null) }
     var firstDay by remember { mutableIntStateOf(1) }
     var chooseStart by remember { mutableStateOf(false) }
-    var chooseDates by remember { mutableStateOf(false) }
-    var startDate by remember { mutableStateOf(days.first().isoDate) }
-    var endDate by remember { mutableStateOf(days.last().isoDate) }
+    val startDate = days.first().isoDate
+    val endDate = days.last().isoDate
     val byTemplateId = templates.associateBy { it.id }
     val byDate = person.cells.associateBy { it.date }
 
@@ -558,16 +557,6 @@ private fun RepeatEditor(
                     chooseStart = false
                 }
             }
-            TextButton(enabled = !saving, onClick = { chooseDates = !chooseDates }) {
-                Text(if (chooseDates) "Tarih seçimini kapat" else "Tarih aralığını değiştir")
-            }
-            if (chooseDates) {
-                ShiftDateButton("Başlangıç", startDate, !saving) {
-                    startDate = it
-                    if (endDate < it) endDate = it
-                }
-                ShiftDateButton("Bitiş", endDate, !saving) { endDate = it }
-            }
             val previewDays = remember(startDate, endDate) {
                 DateUtils.getWeekDays(startDate).filter { it.isoDate <= endDate }
             }
@@ -590,7 +579,7 @@ private fun RepeatEditor(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(day.displayDate, Modifier.width(54.dp), color = BossGradStart,
+                        Text(day.dayName, Modifier.width(54.dp), color = BossGradStart,
                             style = MaterialTheme.typography.labelMedium)
                         Text(summary, Modifier.weight(1f), color = TextMain,
                             style = MaterialTheme.typography.bodySmall)
@@ -614,17 +603,6 @@ private fun RepeatEditor(
             }
         }
     }
-}
-
-@Composable
-private fun ShiftDateButton(label: String, value: String, enabled: Boolean, onSelect: (String) -> Unit) {
-    val context = LocalContext.current
-    OutlinedButton(enabled = enabled, modifier = Modifier.fillMaxWidth(), onClick = {
-        val (year, month, day) = value.split('-').map { it.toInt() }
-        DatePickerDialog(context, { _, selectedYear, selectedMonth, selectedDay ->
-            onSelect(String.format(Locale.ROOT, "%04d-%02d-%02d", selectedYear, selectedMonth + 1, selectedDay))
-        }, year, month - 1, day).show()
-    }) { Text("$label · ${DateUtils.getWeekDays(value).first().displayDate}") }
 }
 
 @Composable

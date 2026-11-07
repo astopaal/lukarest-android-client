@@ -185,6 +185,9 @@ interface ShiftsService {
     @GET("/api/v1/shifts/matrix")
     suspend fun getMatrix(@Query("weekStartDate") weekStartDate: String): Response<ShiftMatrixResponse>
 
+    @GET("/api/v1/shifts/matrix/latest")
+    suspend fun getLatestMatrix(): Response<ShiftMatrixResponse>
+
     @POST("/api/v1/shifts/matrix/assign-cell")
     suspend fun assignCell(@Body body: AssignShiftCellCommand): Response<Unit>
 
