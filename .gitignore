@@ -17,3 +17,8 @@ local.properties
 # Backend API source is intentionally kept out of the Android client repository
 /NETAPI/
 
+# Local Android Studio, Kotlin and Firebase configuration
+/.idea/
+/.kotlin/
+/app/google-services.json
+
