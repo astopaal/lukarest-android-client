@@ -82,6 +82,7 @@ fun BossDashboardScreen(
     var upcomingBirthdays by remember { mutableStateOf<List<UpcomingBirthdayDto>>(emptyList()) }
     var pendingReqCount by remember { mutableIntStateOf(0) }
     var branches by remember { mutableStateOf<List<BranchDto>>(emptyList()) }
+    var dashboardErrors by remember { mutableStateOf(emptySet<String>()) }
     var showBranchDialog by remember { mutableStateOf(false) }
     var switchingBranch by remember { mutableStateOf(false) }
     var branchError by remember { mutableStateOf<String?>(null) }
@@ -89,82 +90,98 @@ fun BossDashboardScreen(
 
     val completedTasksCount = tasks.count { it.status == TaskStatus.DONE }
 
-    var isRefreshing by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
     fun refreshDashboard() {
         dashboardJob?.cancel()
         dashboardJob = coroutineScope.launch {
             isRefreshing = true
+            val failedSections = mutableSetOf<String>()
+            matrixFailed = false
             try {
-                matrixFailed = false
-                try {
-                    val response = ApiClient.shiftsService.getMatrix(weekStart)
-                    val plan = response.body()
-                    if (response.isSuccessful && plan != null) {
-                        matrix = plan
-                    } else {
-                        matrixFailed = true
-                    }
-                } catch (_: IOException) {
+                val response = ApiClient.shiftsService.getMatrix(weekStart)
+                val plan = response.body()
+                if (response.isSuccessful && plan != null) {
+                    matrix = plan
+                } else {
                     matrixFailed = true
                 }
-                val today = DateUtils.getTurkeyTodayIso()
-
-                // 1) Şubedeki güncel görevleri çek
-                val tRes = ApiClient.tasksService.getOverview(today)
-                if (tRes.isSuccessful && tRes.body() != null) {
-                    val serverList = tRes.body()!!.staff.flatMap { group ->
-                        group.tasks.map { it.toTaskItem(group.fullName, group.shiftShortCode.orEmpty()) }
-                    }
-                    viewModel.setTasks(serverList)
-                }
-
-                // 2) Canlı Puantaj (Timesheet)
-                val attRes = ApiClient.attendanceService.getTimesheet(today)
-                if (attRes.isSuccessful && attRes.body() != null) {
-                    timesheet = attRes.body()!!
-                }
-
-                // 3) Bekleyen Talepler
-                val rRes = ApiClient.requestsService.getBranchRequests()
-                if (rRes.isSuccessful && rRes.body() != null) {
-                    pendingReqCount = rRes.body()!!.count { it.status.equals("Pending", ignoreCase = true) }
-                }
-
-                // 4) Yaklaşan Doğum Günleri
-                val bRes = ApiClient.requestsService.getUpcomingBirthdays(7)
-                if (bRes.isSuccessful && bRes.body() != null) {
-                    upcomingBirthdays = bRes.body()!!
-                }
-
-                // 5) Şubeler Listesi
-                val brRes = ApiClient.branchService.getBranches()
-                if (brRes.isSuccessful && brRes.body() != null) {
-                    branches = brRes.body()!!
-
-                }
-
-                // 6) Personel Listesi
-                val stRes = ApiClient.staffAdminService.getStaff()
-                if (stRes.isSuccessful && stRes.body() != null) {
-                    val serverStaff = stRes.body()!!.map {
-                        com.lukasoft.lukarest.data.model.StaffMember(
-                            id = it.userId,
-                            fullName = it.fullName,
-                            initials = it.fullName.split(" ").mapNotNull { n -> n.firstOrNull()?.toString() }.take(2).joinToString("").uppercase(),
-                            avatarGrad = Pair(Color(0xFFC9DEFF), Color(0xFF90B8F8)),
-                            avatarFg = Color(0xFF12306B),
-                            workType = if (it.employmentType.contains("Full", ignoreCase = true)) "full-time" else "part-time",
-                            phone = it.phoneNumber
-                        )
-                    }
-                    viewModel.setStaffList(serverStaff)
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
-            } finally {
-                isRefreshing = false
+                matrixFailed = true
             }
+
+            suspend fun loadSection(name: String, load: suspend () -> Boolean) {
+                try {
+                    if (!load()) failedSections += name
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failedSections += name
+                }
+            }
+
+            val today = DateUtils.getTurkeyTodayIso()
+            loadSection("Görevler") {
+                val response = ApiClient.tasksService.getOverview(today)
+                val body = response.body()
+                if (!response.isSuccessful || body == null) return@loadSection false
+                val serverList = body.staff.flatMap { group ->
+                    group.tasks.map { it.toTaskItem(group.fullName, group.shiftShortCode.orEmpty()) }
+                }
+                viewModel.setTasks(serverList)
+                true
+            }
+            loadSection("Puantaj") {
+                val response = ApiClient.attendanceService.getTimesheet(today)
+                val body = response.body()
+                if (!response.isSuccessful || body == null) return@loadSection false
+                timesheet = body
+                true
+            }
+            loadSection("Talepler") {
+                val response = ApiClient.requestsService.getBranchRequests()
+                val body = response.body()
+                if (!response.isSuccessful || body == null) return@loadSection false
+                pendingReqCount = body.count { it.status.equals("Pending", ignoreCase = true) }
+                true
+            }
+            loadSection("Doğum günleri") {
+                val response = ApiClient.requestsService.getUpcomingBirthdays(7)
+                val body = response.body()
+                if (!response.isSuccessful || body == null) return@loadSection false
+                upcomingBirthdays = body
+                true
+            }
+            loadSection("Şubeler") {
+                val response = ApiClient.branchService.getBranches()
+                val body = response.body()
+                if (!response.isSuccessful || body == null) return@loadSection false
+                branches = body
+                true
+            }
+            loadSection("Personel") {
+                val response = ApiClient.staffAdminService.getStaff()
+                val body = response.body()
+                if (!response.isSuccessful || body == null) return@loadSection false
+                val serverStaff = body.map {
+                    com.lukasoft.lukarest.data.model.StaffMember(
+                        id = it.userId,
+                        fullName = it.fullName,
+                        initials = it.fullName.split(" ").mapNotNull { n -> n.firstOrNull()?.toString() }.take(2).joinToString("").uppercase(),
+                        avatarGrad = Pair(Color(0xFFC9DEFF), Color(0xFF90B8F8)),
+                        avatarFg = Color(0xFF12306B),
+                        workType = if (it.employmentType.contains("Full", ignoreCase = true)) "full-time" else "part-time",
+                        phone = it.phoneNumber
+                    )
+                }
+                viewModel.setStaffList(serverStaff)
+                true
+            }
+            dashboardErrors = failedSections
+            isRefreshing = false
         }
     }
 
@@ -304,6 +321,27 @@ fun BossDashboardScreen(
             val cellsByDay = people.flatMap { it.cells }.groupBy { it.date }
             val plannedCounts = plan?.days.orEmpty().associate { it.date to it.activeStaffCount }
             val today = DateUtils.getTurkeyTodayIso()
+            if (dashboardErrors.isNotEmpty()) {
+                item {
+                    LukaCard {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Bazı panel bilgileri alınamadı. Gösterilen değerler eksik veya eski olabilir.",
+                                modifier = Modifier.weight(1f),
+                                color = PillWarn.fg,
+                                fontSize = 13.sp
+                            )
+                            TextButton(onClick = { refreshDashboard() }) {
+                                Text("Tekrar dene")
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 LukaCard {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -432,25 +470,46 @@ fun BossDashboardScreen(
                 ) {
                     val activeInShift = timesheet.count { it.clockInUtc != null && it.clockOutUtc == null }
                     val totalStaffCount = if (timesheet.isNotEmpty()) timesheet.size else staffList.size
+                    val timesheetUnavailable = "Puantaj" in dashboardErrors || isRefreshing && timesheet.isEmpty()
+                    val tasksUnavailable = "Görevler" in dashboardErrors || isRefreshing && tasks.isEmpty()
+                    val requestsUnavailable = "Talepler" in dashboardErrors || isRefreshing && pendingReqCount == 0
 
 
                     // KPI 1 - Canlı Puantaj
                     LukaCard(modifier = Modifier.weight(1f), contentPadding = PaddingValues(10.dp)) {
                         Row(verticalAlignment = Alignment.Bottom) {
-                            Text(text = "$activeInShift", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BossGradStart)
-                            Text(text = " / $totalStaffCount", fontSize = 12.sp, color = TextMuted)
+                            Text(text = if (timesheetUnavailable) "—" else "$activeInShift", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BossGradStart)
+                            Text(text = if (timesheetUnavailable) "" else " / $totalStaffCount", fontSize = 12.sp, color = TextMuted)
                         }
-                        Text(text = "aktif vardiyada", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        Text(
+                            text = when {
+                                "Puantaj" in dashboardErrors -> "puantaj alınamadı"
+                                isRefreshing && timesheet.isEmpty() -> "yükleniyor..."
+                                else -> "aktif vardiyada"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
                     }
 
 
                     // KPI 2 - Görevler
                     LukaCard(modifier = Modifier.weight(1f), contentPadding = PaddingValues(10.dp)) {
                         Row(verticalAlignment = Alignment.Bottom) {
-                            Text(text = "$completedTasksCount", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BossGradStart)
-                            Text(text = " / ${tasks.size}", fontSize = 12.sp, color = TextMuted)
+                            Text(text = if (tasksUnavailable) "—" else "$completedTasksCount", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BossGradStart)
+                            Text(text = if (tasksUnavailable) "" else " / ${tasks.size}", fontSize = 12.sp, color = TextMuted)
                         }
-                        Text(text = "görev bitti", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        Text(
+                            text = when {
+                                "Görevler" in dashboardErrors -> "görev verisi alınamadı"
+                                isRefreshing && tasks.isEmpty() -> "yükleniyor..."
+                                else -> "görev bitti"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
                     }
 
 
@@ -462,14 +521,23 @@ fun BossDashboardScreen(
                         contentPadding = PaddingValues(10.dp),
                         backgroundColor = Color(0xFFFFEFC2)
                     ) {
-                        Text(text = "$pendingReqCount", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7A4F00))
-                        Text(text = "talep bekliyor", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7A4F00))
+                        Text(text = if (requestsUnavailable) "—" else "$pendingReqCount", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7A4F00))
+                        Text(
+                            text = when {
+                                "Talepler" in dashboardErrors -> "talep bilgisi alınamadı"
+                                isRefreshing && pendingReqCount == 0 -> "yükleniyor..."
+                                else -> "talep bekliyor"
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF7A4F00)
+                        )
                     }
                 }
             }
 
             // Doğum Günü Bildirim Kartı (Varsa)
-            if (upcomingBirthdays.isNotEmpty()) {
+            if (upcomingBirthdays.isNotEmpty() || "Doğum günleri" in dashboardErrors) {
                 item {
                     LukaCard(backgroundColor = Color(0xFFFFF7ED)) {
                         Row(
@@ -479,16 +547,18 @@ fun BossDashboardScreen(
                             Text(text = "🎂", fontSize = 24.sp)
                             Column {
                                 Text(
-                                    text = "Yaklaşan Doğum Günleri (Bu Hafta)",
+                                    text = if ("Doğum günleri" in dashboardErrors) "Yaklaşan Doğum Günleri alınamadı" else "Yaklaşan Doğum Günleri (Bu Hafta)",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFC2410C)
                                 )
-                                Text(
-                                    text = upcomingBirthdays.joinToString { "${it.fullName} (${if (it.daysUntil == 0) "Bugün!" else "${it.daysUntil} gün"})" },
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF9A3412)
-                                )
+                                if (upcomingBirthdays.isNotEmpty()) {
+                                    Text(
+                                        text = upcomingBirthdays.joinToString { "${it.fullName} (${if (it.daysUntil == 0) "Bugün!" else "${it.daysUntil} gün"})" },
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF9A3412)
+                                    )
+                                }
                             }
                         }
                     }
@@ -511,9 +581,16 @@ fun BossDashboardScreen(
                 ) {
                     val activeBranches = branches.filter { it.isActive }
                     if (activeBranches.isEmpty()) Text(
-                        if (isRefreshing) "Şubeler yükleniyor…" else "Geçiş yapılabilecek şube bulunamadı.",
-                        color = TextSoft
+                        when {
+                            "Şubeler" in dashboardErrors -> "Şubeler yüklenemedi."
+                            isRefreshing -> "Şubeler yükleniyor…"
+                            else -> "Geçiş yapılabilecek şube bulunamadı."
+                        },
+                        color = if ("Şubeler" in dashboardErrors) PillErr.fg else TextSoft
                     )
+                    if ("Şubeler" in dashboardErrors) {
+                        TextButton(onClick = { refreshDashboard() }) { Text("Tekrar dene") }
+                    }
                     branchError?.let { Text(it, color = PillErr.fg) }
                     if (switchingBranch) LinearProgressIndicator(Modifier.fillMaxWidth(), color = BossGradStart)
                     activeBranches.forEach { br ->
