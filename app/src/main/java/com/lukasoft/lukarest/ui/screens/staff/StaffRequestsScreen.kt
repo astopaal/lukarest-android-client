@@ -42,19 +42,24 @@ fun StaffRequestsScreen(
     val staffName by AuthStore.staffName.collectAsState()
 
     var myRequests by remember { mutableStateOf<List<StaffRequestListItemDto>>(emptyList()) }
-    var isRefreshing by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
 
     var showIssue by remember { mutableStateOf(false) }
 
     fun refreshRequests() {
         coroutineScope.launch {
             isRefreshing = true
+            loadError = false
             try {
                 val res = ApiClient.requestsService.getMyRequests()
                 if (res.isSuccessful && res.body() != null) {
                     myRequests = res.body()!!
+                } else {
+                    loadError = true
                 }
             } catch (_: Exception) {
+                loadError = true
             } finally {
                 delay(300)
                 isRefreshing = false
@@ -138,7 +143,24 @@ fun StaffRequestsScreen(
                 OutlinedButton(onClick = { showIssue = true }) { Text("Stok, arıza veya ihtiyaç bildir") }
 
                 // Talep Geçmişi Listesi
-                if (myRequests.isEmpty() && !isRefreshing) {
+                if (myRequests.isEmpty() && !isRefreshing && loadError) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Talepler yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+                            color = PillErr.fg,
+                            fontSize = 14.sp
+                        )
+                        TextButton(onClick = { refreshRequests() }) {
+                            Text("Tekrar dene")
+                        }
+                    }
+                } else if (myRequests.isEmpty() && !isRefreshing) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -152,8 +174,27 @@ fun StaffRequestsScreen(
                         )
                     }
                 } else {
+                    if (loadError) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Güncellenemedi. Gösterilen talepler son başarılı yüklemeden.",
+                                modifier = Modifier.weight(1f),
+                                color = PillWarn.fg,
+                                fontSize = 12.sp
+                            )
+                            TextButton(onClick = { refreshRequests() }) {
+                                Text("Tekrar dene")
+                            }
+                        }
+                    }
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(myRequests) { req ->
