@@ -57,33 +57,51 @@ fun StaffTodayScreen(
     var todayMyShiftDay by remember { mutableStateOf<MyShiftDayDto?>(null) }
     var attendanceData by remember { mutableStateOf<AttendanceDayDto?>(null) }
     var isAttendanceActionLoading by remember { mutableStateOf(false) }
+    var loadErrors by remember { mutableStateOf(emptySet<String>()) }
 
     fun loadTodayData() {
         coroutineScope.launch {
             isLoading = true
+            val failedSections = mutableSetOf<String>()
+
+            // 1) Personelin kendi haftalık vardiyalarını çek (Yönetici gerektirmez)
             try {
-                // 1) Personelin kendi haftalık vardiyalarını çek (Yönetici gerektirmez)
                 val sRes = ApiClient.shiftsService.getMyShifts(currentMonday)
                 if (sRes.isSuccessful && sRes.body() != null) {
                     val days = sRes.body()!!.days
                     todayMyShiftDay = days.find { it.date == todayIso }
+                } else {
+                    failedSections += "Vardiya"
                 }
+            } catch (_: Exception) {
+                failedSections += "Vardiya"
+            }
 
-                // 2) Bugünkü görevleri çek
+            // 2) Bugünkü görevleri çek
+            try {
                 val taskRes = ApiClient.tasksService.getMyTasks()
                 if (taskRes.isSuccessful && taskRes.body() != null) {
                     val taskResponse = taskRes.body()!!
                     viewModel.setTasks(taskResponse.tasks.map { it.toTaskItem("me") })
+                } else {
+                    failedSections += "Görevler"
                 }
+            } catch (_: Exception) {
+                failedSections += "Görevler"
+            }
 
-                // 3) Puantaj / Mola durumunu çek
+            // 3) Puantaj / Mola durumunu çek
+            try {
                 val attRes = ApiClient.attendanceService.getMyAttendance(todayIso)
                 if (attRes.isSuccessful && attRes.body() != null) {
                     attendanceData = attRes.body()
+                } else {
+                    failedSections += "Puantaj"
                 }
-            } catch (e: Exception) {
-                // Sessizce geç veya logla
+            } catch (_: Exception) {
+                failedSections += "Puantaj"
             } finally {
+                loadErrors = failedSections
                 isLoading = false
             }
         }
@@ -204,6 +222,28 @@ fun StaffTodayScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+            if (loadErrors.isNotEmpty()) {
+                item {
+                    LukaCard {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Bazı bilgiler güncellenemedi. Gösterilen veriler eski olabilir.",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 13.sp,
+                                color = PillWarn.fg
+                            )
+                            TextButton(onClick = { loadTodayData() }) {
+                                Text("Tekrar dene")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Haftalık Gün Strip
             item {
                 Row(
@@ -322,8 +362,14 @@ fun StaffTodayScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     PrimaryButton(
-                                        text = if (isAttendanceActionLoading) "İşleniyor..." else "Vardiyaya Giriş Yap",
-                                        onClick = { if (!isAttendanceActionLoading) handleClockIn() },
+                                        text = when {
+                                            isAttendanceActionLoading -> "İşleniyor..."
+                                            isLoading -> "Durum kontrol ediliyor..."
+                                            "Puantaj" in loadErrors -> "Puantaj alınamadı"
+                                            else -> "Vardiyaya Giriş Yap"
+                                        },
+                                        onClick = { if (!isAttendanceActionLoading && !isLoading && "Puantaj" !in loadErrors) handleClockIn() },
+                                        enabled = !isAttendanceActionLoading && !isLoading && "Puantaj" !in loadErrors,
                                         modifier = Modifier.weight(1f),
                                         height = 42.dp
                                     )
@@ -342,18 +388,26 @@ fun StaffTodayScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     PrimaryButton(
-                                        text = if (isAttendanceActionLoading) "İşleniyor..." else if (hasOpenBreak) "Molayı Bitir" else "Mola Başlat",
+                                        text = when {
+                                            isAttendanceActionLoading -> "İşleniyor..."
+                                            isLoading -> "Durum kontrol ediliyor..."
+                                            "Puantaj" in loadErrors -> "Puantaj alınamadı"
+                                            hasOpenBreak -> "Molayı Bitir"
+                                            else -> "Mola Başlat"
+                                        },
                                         onClick = {
-                                            if (!isAttendanceActionLoading) {
+                                            if (!isAttendanceActionLoading && !isLoading && "Puantaj" !in loadErrors) {
                                                 if (hasOpenBreak) handleEndBreak() else handleStartBreak()
                                             }
                                         },
+                                        enabled = !isAttendanceActionLoading && !isLoading && "Puantaj" !in loadErrors,
                                         modifier = Modifier.weight(1f),
                                         height = 42.dp
                                     )
                                     OutlinedButton(
                                         onClick = { if (!isAttendanceActionLoading) handleClockOut() },
                                         modifier = Modifier.weight(1f).height(42.dp),
+                                        enabled = !isAttendanceActionLoading && !isLoading && "Puantaj" !in loadErrors,
                                         shape = RoundedCornerShape(20.dp),
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = PillErr.fg)
                                     ) {
@@ -431,7 +485,11 @@ fun StaffTodayScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Bugün için atanmış bir görev bulunmuyor.",
+                                text = when {
+                                    "Görevler" in loadErrors -> "Görevler yüklenemedi. Tekrar deneyin."
+                                    isLoading -> "Görevler yükleniyor..."
+                                    else -> "Bugün için atanmış bir görev bulunmuyor."
+                                },
                                 fontSize = 13.sp,
                                 color = TextMuted
                             )
