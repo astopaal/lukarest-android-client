@@ -1,13 +1,14 @@
 package com.lukasoft.lukarest.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.ui.theme.StaffGradStart
 import com.lukasoft.lukarest.ui.theme.TextMuted
 import com.lukasoft.lukarest.ui.theme.White
+import com.lukasoft.lukarest.ui.theme.PillBlue
 
 data class NavItem(
     val route: String,
@@ -39,12 +41,13 @@ fun LukaBottomNav(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
+                .heightIn(min = 64.dp)
                 .shadow(
                     elevation = 12.dp,
                     shape = RoundedCornerShape(32.dp),
@@ -58,32 +61,32 @@ fun LukaBottomNav(
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { item ->
-                val selected = currentRoute == item.route
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onNavigate(item.route) }
-                        .padding(vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.title,
-                        tint = if (selected) activeColor else TextMuted,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = item.title,
-                        color = if (selected) activeColor else TextMuted,
-                        fontSize = 10.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                    )
-                }
+                LukaNavItem(item, currentRoute == item.route, onNavigate, activeColor)
             }
         }
     }
+}
+
+@Composable
+internal fun RowScope.LukaNavItem(
+    item: NavItem,
+    selected: Boolean,
+    onNavigate: (String) -> Unit,
+    activeColor: Color
+) {
+    NavigationBarItem(
+        modifier = Modifier.lukaFocusOutline(),
+        selected = selected,
+        onClick = { onNavigate(item.route) },
+        icon = { Icon(item.icon, contentDescription = null, modifier = Modifier.size(22.dp)) },
+        label = { Text(item.title, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium) },
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = activeColor,
+            selectedTextColor = activeColor,
+            unselectedIconColor = TextMuted,
+            unselectedTextColor = TextMuted,
+            indicatorColor = PillBlue.bg
+        )
+    )
 }
 

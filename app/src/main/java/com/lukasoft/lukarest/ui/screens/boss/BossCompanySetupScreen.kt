@@ -462,6 +462,7 @@ fun BossCompanySetupScreen(
 
                             PrimaryButton(
                                 text = if (isSubmitting) "Kaydediliyor..." else "Devam Et (Şube Bilgileri) →",
+                                loading = isSubmitting,
                                 onClick = { if (!isSubmitting) handleSaveCompany() },
                                 enabled = !isSubmitting,
                                 gradient = BossGradient,
@@ -691,6 +692,7 @@ fun BossCompanySetupScreen(
 
                             PrimaryButton(
                                 text = if (isSubmitting) "Kaydediliyor..." else "Kurulumu Tamamla ve Panele Geç",
+                                loading = isSubmitting,
                                 onClick = { if (!isSubmitting) handleSaveBranch() },
                                 enabled = !isSubmitting,
                                 gradient = BossGradient,

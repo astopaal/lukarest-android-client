@@ -196,6 +196,7 @@ fun BossLoginScreen(
 
                         PrimaryButton(
                             text = if (isLoading) "Gönderiliyor..." else "Giriş Linki Gönder",
+                            loading = isLoading,
                             onClick = handleSendLink,
                             enabled = !isLoading,
                             gradient = BossGradient,

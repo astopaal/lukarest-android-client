@@ -1,7 +1,6 @@
 package com.lukasoft.lukarest.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.ui.theme.StaffGradient
+import com.lukasoft.lukarest.ui.theme.BossGradStart
 import com.lukasoft.lukarest.ui.theme.White
 
 @Composable
@@ -39,7 +40,7 @@ fun TopPill(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .heightIn(min = 60.dp)
             .shadow(
                 elevation = 6.dp,
                 shape = RoundedCornerShape(30.dp),
@@ -48,7 +49,7 @@ fun TopPill(
             )
             .clip(RoundedCornerShape(30.dp))
             .background(gradient)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
@@ -60,7 +61,7 @@ fun TopPill(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.25f)),
+                    .background(BossGradStart.copy(alpha = 0.35f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -80,26 +81,26 @@ fun TopPill(
                     color = White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    maxLines = 2
                 )
                 Text(
                     text = subtitle,
-                    color = White.copy(alpha = 0.8f),
+                    color = White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 1
+                    maxLines = 2
                 )
             }
 
             if (showAction) {
                 // Action Button (Logout or Qr)
-                Box(
+                IconButton(
+                    onClick = onActionClick,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
+                        .lukaFocusOutline(CircleShape)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.18f))
-                        .clickable(onClick = onActionClick),
-                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = actionIcon,

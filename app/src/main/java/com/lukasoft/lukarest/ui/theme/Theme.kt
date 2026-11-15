@@ -8,15 +8,31 @@ import androidx.compose.runtime.Composable
 private val LightColorScheme = lightColorScheme(
     primary = BtnGradStart,
     onPrimary = White,
+    primaryContainer = PillBlue.bg,
+    onPrimaryContainer = PillBlue.fg,
     secondary = StaffGradEnd,
     onSecondary = White,
+    secondaryContainer = PillBlue.bg,
+    onSecondaryContainer = PillBlue.fg,
     tertiary = BossGradStart,
     background = BgScreenTop,
     onBackground = TextMain,
     surface = White,
     onSurface = TextMain,
     surfaceVariant = BgBoard,
-    outline = BorderSoft
+    onSurfaceVariant = TextMuted,
+    surfaceContainer = White,
+    surfaceContainerLow = BgScreenTop,
+    surfaceContainerHigh = White,
+    outline = TextMuted,
+    outlineVariant = BorderSoft,
+    error = PillErr.fg,
+    onError = White,
+    errorContainer = PillErr.bg,
+    onErrorContainer = PillErr.fg,
+    inverseSurface = BossGradStart,
+    inverseOnSurface = White,
+    inversePrimary = PillBlue.bg
 )
 
 @Composable

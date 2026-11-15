@@ -43,19 +43,21 @@ internal fun LukaSnackbar(data: SnackbarData) {
         contentColor = White,
         actionContentColor = White,
         dismissActionContentColor = White,
-        action = if (data.visuals.actionLabel != null) ({
-            data.visuals.actionLabel?.let { label -> TextButton(onClick = { data.performAction() }) { Text(label, color = White) } }
-        }) else null,
+        action = {
+            data.visuals.actionLabel?.let { label ->
+                TextButton(onClick = data::performAction) { Text(label, color = White) }
+            }
+        },
         dismissAction = if (data.visuals.withDismissAction) ({
             IconButton(onClick = { data.dismiss() }) { Icon(Icons.Default.Close, contentDescription = "Kapat", tint = White) }
         }) else null
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (success) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = PillOk.fg)
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = PillOk.bg)
                 androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
             }
-            Text(data.visuals.message)
+            Text(data.visuals.message, color = White)
         }
     }
 }
