@@ -199,6 +199,7 @@ fun BossRequestsScreen(
                                     }
                                     StatusPill(text = pillText, pillColor = pillColor)
                                 }
+                                Text("Öncelik: ${com.lukasoft.lukarest.ui.components.priorityLabels[req.priority] ?: req.priority}", style = MaterialTheme.typography.bodySmall, color = TextMain)
 
                                 Spacer(modifier = Modifier.height(8.dp))
 

@@ -1,11 +1,15 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
+import com.lukasoft.lukarest.ui.components.LukaBottomSheet
+
 import com.lukasoft.lukarest.ui.components.LukaFeedback
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,9 +35,11 @@ import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StaffRequestsScreen(
     viewModel: LukaViewModel,
+    onNavigateToShifts: () -> Unit,
     onNavigateToShiftChange: () -> Unit,
     onNavigateToLeaveChange: () -> Unit
 ) {
@@ -46,6 +52,33 @@ fun StaffRequestsScreen(
     var loadError by remember { mutableStateOf(false) }
 
     var showIssue by remember { mutableStateOf(false) }
+    var showRequestTypes by remember { mutableStateOf(false) }
+    var statusFilter by remember { mutableStateOf<String?>(null) }
+    val visibleRequests = myRequests.filter { statusFilter == null || it.status.equals(statusFilter, ignoreCase = true) }
+    if (showRequestTypes) LukaBottomSheet(onDismissRequest = { showRequestTypes = false }, containerColor = BgScreenTop) {
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Ne talep etmek istiyorsunuz?", style = MaterialTheme.typography.titleLarge, color = TextMain)
+            listOf(
+                Triple("Vardiya saatini değiştir", "Çalışma saatlerin için yeni bir aralık öner.", onNavigateToShiftChange),
+                Triple("İzin talebi oluştur", "Haftalık, yıllık veya mazeret izni iste.", onNavigateToLeaveChange),
+                Triple("İhtiyaç veya sorun bildir", "Stok, ekipman arızası ya da diğer ihtiyaçları ilet.", { showIssue = true })
+            ).forEach { (title, description, action) ->
+                OutlinedCard(onClick = { showRequestTypes = false; action() }, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleMedium, color = TextMain)
+                        Text(description, style = MaterialTheme.typography.bodyMedium, color = TextMuted)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+    var approvedRequest by remember { mutableStateOf<StaffRequestListItemDto?>(null) }
+    val preferences = remember { context.getSharedPreferences("request_approvals", android.content.Context.MODE_PRIVATE) }
+    fun dismissApproval() {
+        approvedRequest?.let { preferences.edit().putBoolean("${AuthStore.userId.value}:${it.id}", true).apply() }
+        approvedRequest = null
+    }
 
     fun refreshRequests() {
         coroutineScope.launch {
@@ -55,6 +88,11 @@ fun StaffRequestsScreen(
                 val res = ApiClient.requestsService.getMyRequests()
                 if (res.isSuccessful && res.body() != null) {
                     myRequests = res.body()!!
+                    approvedRequest = myRequests.firstOrNull {
+                        it.staffUserId == AuthStore.userId.value && it.status == "Approved" &&
+                            it.requestType in listOf("ShiftHourChange", "WeeklyOffDayChange", "AnnualLeave", "ExcusedLeave") &&
+                            !preferences.getBoolean("${AuthStore.userId.value}:${it.id}", false)
+                    }
                 } else {
                     loadError = true
                 }
@@ -91,6 +129,12 @@ fun StaffRequestsScreen(
         onDismiss = { showIssue = false },
         onSaved = { showIssue = false; refreshRequests() }
     )
+    approvedRequest?.let {
+        AlertDialog(onDismissRequest = { dismissApproval() }, title = { Text("Talebin onaylandı") },
+            text = { Text("İzin veya vardiya değişikliği planına işlendi. Güncel vardiyalarını açmak ister misin?") },
+            confirmButton = { TextButton(onClick = { dismissApproval(); onNavigateToShifts() }) { Text("Vardiyalarımı aç") } },
+            dismissButton = { TextButton(onClick = { dismissApproval() }) { Text("Daha sonra") } })
+    }
 
     Scaffold(
         topBar = {
@@ -118,29 +162,17 @@ fun StaffRequestsScreen(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
             ) {
-                // Yeni Talep Butonları
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    PrimaryButton(
-                        text = "Vardiya Değişimi",
-                        onClick = onNavigateToShiftChange,
-                        modifier = Modifier.weight(1f),
-                        height = 42.dp
-                    )
-                    PrimaryButton(
-                        text = "İzin Talebi",
-                        onClick = onNavigateToLeaveChange,
-                        modifier = Modifier.weight(1f),
-                        height = 42.dp,
-                        gradient = BtnGradient
-                    )
+                PrimaryButton(text = "Yeni talep oluştur", onClick = { showRequestTypes = true })
+                Spacer(Modifier.height(12.dp))
+                Text("Talep geçmişi", style = MaterialTheme.typography.titleMedium, color = TextMain)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(null to "Tümü", "Pending" to "Bekleyen", "Approved" to "Onaylanan", "Rejected" to "Reddedilen", "Cancelled" to "İptal").forEach { (code, label) ->
+                        val count = myRequests.count { code == null || it.status.equals(code, ignoreCase = true) }
+                        FilterChip(selected = statusFilter == code, onClick = { statusFilter = code }, label = { Text("$label ($count)", color = TextMain) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PillBlue.bg))
+                    }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedButton(onClick = { showIssue = true }) { Text("Stok, arıza veya ihtiyaç bildir") }
+                if (visibleRequests.isEmpty() && myRequests.isNotEmpty()) Text("Bu durumda bir talep yok.", color = TextMuted, modifier = Modifier.padding(vertical = 16.dp))
 
                 // Talep Geçmişi Listesi
                 if (myRequests.isEmpty() && !isRefreshing && loadError) {
@@ -197,7 +229,7 @@ fun StaffRequestsScreen(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(myRequests) { req ->
+                        items(visibleRequests) { req ->
                             val isPending = req.status.equals("Pending", ignoreCase = true)
                             val statusPillColor = when (req.status.lowercase()) {
                                 "pending" -> PillWarn
@@ -252,7 +284,9 @@ fun StaffRequestsScreen(
                                     )
                                 }
 
-                                if (isPending) {
+                                Text("Öncelik: ${priorityLabels[req.priority] ?: req.priority}", color = TextMain)
+                                if (req.staffUserId != AuthStore.userId.value) Text("${req.staffFullName} seni bu talepte etiketledi", color = BossGradStart)
+                                if (isPending && req.staffUserId == AuthStore.userId.value) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -280,6 +314,7 @@ fun StaffRequestsScreen(
 }
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun IssueRequestDialog(onDismiss: () -> Unit, onSaved: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -287,33 +322,38 @@ private fun IssueRequestDialog(onDismiss: () -> Unit, onSaved: () -> Unit) {
     var type by remember { mutableStateOf(types.first().first) }
     var item by remember { mutableStateOf("") }
     var urgency by remember { mutableStateOf("Normal") }
+    var priority by remember { mutableStateOf("Medium") }
     var quantity by remember { mutableStateOf("") }
     var reason by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val amount = quantity.trim().replace(',', '.').toDoubleOrNull()
-    AlertDialog(
+    val canSend = !busy && item.trim().length in 1..200 && urgency.trim().length in 1..50 &&
+        reason.trim().length in 5..500 && (quantity.isBlank() || amount?.let { it.isFinite() && it > 0 } == true)
+    LukaBottomSheet(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Operasyon talebi") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = BgScreenTop
+    ) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Operasyon talebi", style = MaterialTheme.typography.headlineSmall, color = BossGradStart)
+                Text("Stok, ekipman veya ihtiyaç bilgisini şubenle paylaş.", color = TextMain)
                 types.forEach { (code, label) ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(type == code, onClick = { type = code })
+                    Row(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = type == code, enabled = !busy, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { type = code }), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(type == code, onClick = null, enabled = !busy)
                         Text(label)
                     }
                 }
-                OutlinedTextField(item, { item = it }, label = { Text("Ürün veya ekipman") })
-                OutlinedTextField(urgency, { urgency = it }, label = { Text("Aciliyet") })
-                OutlinedTextField(quantity, { quantity = it }, label = { Text("Miktar (isteğe bağlı)") })
-                OutlinedTextField(reason, { reason = it }, label = { Text("Açıklama") })
+                OutlinedTextField(item, { item = it.take(200) }, label = { Text("Ürün veya ekipman") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+                OutlinedTextField(quantity, { quantity = it }, label = { Text("Miktar (isteğe bağlı)") }, modifier = Modifier.fillMaxWidth(), enabled = !busy,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+                OutlinedTextField(reason, { reason = it.take(500) }, label = { Text("Açıklama") }, modifier = Modifier.fillMaxWidth(), minLines = 3, enabled = !busy,
+                    supportingText = { Text("${reason.length}/500 · En az 5 karakter") })
+                PriorityField(priority, enabled = !busy, onChange = { priority = it; urgency = priorityLabels[it] ?: "Normal" })
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !busy && item.trim().length in 1..200 && urgency.trim().length in 1..50 &&
-                    reason.trim().length in 5..500 && (quantity.isBlank() || amount?.let { it.isFinite() && it > 0 } == true),
+            Button(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                enabled = canSend,
                 onClick = {
                     busy = true
                     error = null
@@ -321,10 +361,10 @@ private fun IssueRequestDialog(onDismiss: () -> Unit, onSaved: () -> Unit) {
                         try {
                             val result = ApiClient.requestsService.createMyRequest(
                                 CreateStaffRequestCommand(type, reason.trim(),
-                                    issue = OperationalIssueDetailsDto(item.trim(), urgency.trim(), amount))
+                                    issue = OperationalIssueDetailsDto(item.trim(), urgency.trim(), amount), priority = priority)
                             )
                             if (result.isSuccessful) onSaved()
-                            else error = "Talep kaydedilemedi (${result.code()})."
+                            else error = com.lukasoft.lukarest.data.api.apiErrorMessage(result.errorBody()?.string(), "Talep kaydedilemedi (${result.code()}).")
                         } catch (_: java.io.IOException) {
                             error = "Sunucuya ulaşılamadı."
                         } finally {
@@ -332,8 +372,8 @@ private fun IssueRequestDialog(onDismiss: () -> Unit, onSaved: () -> Unit) {
                         }
                     }
                 }
-            ) { Text("Gönder") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Vazgeç") } }
-    )
+            ) { Text(if (busy) "Gönderiliyor..." else "Talebi gönder", color = if (canSend) White else TextMuted) }
+            TextButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Vazgeç") }
+        }
+    }
 }

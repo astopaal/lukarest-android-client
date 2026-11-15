@@ -37,6 +37,7 @@ import kotlinx.coroutines.launch
 fun BossRequestDetailScreen(
     requestId: String,
     viewModel: LukaViewModel,
+    onNavigateToShifts: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -46,6 +47,7 @@ fun BossRequestDetailScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isSubmitting by remember { mutableStateOf(false) }
     var managerNote by remember { mutableStateOf("") }
+    var showApprovedPrompt by remember { mutableStateOf(false) }
 
     fun loadDetail() {
         coroutineScope.launch {
@@ -79,9 +81,11 @@ fun BossRequestDetailScreen(
                     )
                 )
                 if (res.isSuccessful) {
+                    detail = res.body() ?: detail
                     val msg = if (isApproved) "Talep onaylandı ve vardiyaya işlendi" else "Talep reddedildi"
                     LukaFeedback.show(msg)
-                    onNavigateBack()
+                    if (isApproved && (detail?.shiftChange != null || detail?.leave != null)) showApprovedPrompt = true
+                    else onNavigateBack()
                 } else {
                     LukaFeedback.show("İşlem başarısız: ${res.code()}")
                 }
@@ -93,6 +97,13 @@ fun BossRequestDetailScreen(
         }
     }
 
+    if (showApprovedPrompt) AlertDialog(
+        onDismissRequest = { showApprovedPrompt = false },
+        title = { Text("Vardiya planı güncellendi") },
+        text = { Text(if (detail?.coverage?.hasGap == true) "Personel boşluğu oluştu: ${detail?.coverage?.message}\n\nVardiya planını açmak ister misiniz?" else "Güncellenen vardiya planını açmak ister misiniz?") },
+        confirmButton = { TextButton(onClick = { showApprovedPrompt = false; onNavigateToShifts() }) { Text("Vardiya planını aç") } },
+        dismissButton = { TextButton(onClick = { showApprovedPrompt = false }) { Text("Bu ekranda kal") } }
+    )
     Scaffold(
         topBar = {
             Box(
@@ -157,6 +168,7 @@ fun BossRequestDetailScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(text = req?.staffFullName ?: "Personel", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextMain)
+                            Text("Öncelik: ${com.lukasoft.lukarest.ui.components.priorityLabels[req?.priority] ?: req?.priority.orEmpty()}", fontSize = 12.sp, color = TextMain)
                             Text(
                                 text = when (req?.requestType) {
                                     "ShiftHourChange" -> "Vardiya Saati Değişikliği"
@@ -194,7 +206,7 @@ fun BossRequestDetailScreen(
 
                 // Kapsama Etkisi (Coverage Impact) Kartı (Backend'den hesaplanıp döner)
                 if (req?.coverage != null) {
-                    LukaCard(backgroundColor = Color(0xFFE8F1FC)) {
+                    LukaCard(backgroundColor = if (req.coverage.hasGap) PillErr.bg else PillBlue.bg) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -206,9 +218,9 @@ fun BossRequestDetailScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Şube Kapsama Etkisi (Coverage)",
+                                text = if (req.coverage.hasGap) "DİKKAT: VARDİYADA PERSONEL BOŞLUĞU" else "Vardiya kapsamı",
                                 fontWeight = FontWeight.Bold,
-                                color = StaffGradStart,
+                                color = if (req.coverage.hasGap) PillErr.fg else BossGradStart,
                                 fontSize = 14.sp
                             )
                         }

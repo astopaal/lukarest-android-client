@@ -48,6 +48,7 @@ fun StaffLeaveChangeScreen(
     var dayIndex by remember { mutableIntStateOf(0) }
     var duration by remember { mutableIntStateOf(1) }
     var note by remember { mutableStateOf("") }
+    var priority by remember { mutableStateOf("Medium") }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -57,7 +58,10 @@ fun StaffLeaveChangeScreen(
             errorMessage = null
             try {
                 val proposedDate = weekDays.getOrNull(dayIndex)?.isoDate ?: DateUtils.getTodayIso()
-                val currentOffDate = weekDays.lastOrNull()?.isoDate ?: DateUtils.getTodayIso()
+                val schedule = ApiClient.shiftsService.getMyShifts(currentMonday)
+                if (!schedule.isSuccessful) { errorMessage = "Güncel izin planı alınamadı. Tekrar deneyin."; return@launch }
+                val currentOffDate = if (leaveType == LeaveType.DAY_CHANGE) schedule.body()?.days?.firstOrNull { it.isOffDay }?.date else proposedDate
+                if (currentOffDate == null) { errorMessage = "Bu hafta değiştirilebilecek bir izin günü yok."; return@launch }
 
                 val (reqType, category) = when (leaveType) {
                     LeaveType.DAY_CHANGE -> "WeeklyOffDayChange" to "Haftalık İzin"
@@ -75,6 +79,7 @@ fun StaffLeaveChangeScreen(
                 val res = ApiClient.requestsService.createMyRequest(
                     CreateStaffRequestCommand(
                         requestType = reqType,
+                        priority = priority,
                         reason = reasonText,
                         leave = LeaveRequestDetailsDto(
                             currentOffDate = currentOffDate,
@@ -89,7 +94,7 @@ fun StaffLeaveChangeScreen(
                     LukaFeedback.show("İzin talebiniz iletildi")
                     onNavigateBack()
                 } else {
-                    errorMessage = "Talep iletilemedi: ${res.code()}"
+                    errorMessage = com.lukasoft.lukarest.data.api.apiErrorMessage(res.errorBody()?.string(), "Talep iletilemedi: ${res.code()}")
                 }
             } catch (e: Exception) {
                 errorMessage = "Hata: ${e.localizedMessage}"
@@ -235,6 +240,7 @@ fun StaffLeaveChangeScreen(
             }
 
             // Yöneticiye Not
+            com.lukasoft.lukarest.ui.components.PriorityField(priority, enabled = !isSubmitting, onChange = { priority = it })
             Text(text = "Yöneticiye not", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextMain)
             OutlinedTextField(
                 value = note,
@@ -258,6 +264,7 @@ fun StaffLeaveChangeScreen(
 
             PrimaryButton(
                 text = if (isSubmitting) "Gönderiliyor..." else "İzin Talebini Gönder",
+                loading = isSubmitting,
                 onClick = { if (!isSubmitting) handleSubmit() },
                 gradient = StaffGradient
             )

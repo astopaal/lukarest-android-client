@@ -1,5 +1,8 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
+import com.lukasoft.lukarest.ui.components.LukaBottomSheet
+import com.lukasoft.lukarest.ui.components.LukaChoiceRow
+
 import android.app.TimePickerDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -88,6 +91,7 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     var actionError by remember(panel) { mutableStateOf<String?>(null) }
+    var coverageWarning by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         try {
@@ -130,6 +134,8 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
             val feedback = try {
                 val result = request()
                 if (result.isSuccessful) {
+                    val coverage = (result.body() as? ShiftMatrixCellDto)?.coverage
+                    coverageWarning = coverage?.message?.takeIf { coverage.hasGap }
                     panel = null
                     if (week > latestWeek) latestWeek = week
                     revision++
@@ -148,6 +154,10 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
         }
     }
 
+    coverageWarning?.let { message ->
+        AlertDialog(onDismissRequest = { coverageWarning = null }, title = { Text("Vardiyada personel boşluğu oluştu", color = PillErr.fg) },
+            text = { Text(message) }, confirmButton = { TextButton(onClick = { coverageWarning = null }) { Text("Uyarıyı gördüm") } })
+    }
     Scaffold(
         containerColor = Color.Transparent,
         modifier = Modifier.background(
@@ -232,7 +242,7 @@ private fun WeeklyShiftPlanner(onNavigateToAddShift: () -> Unit) {
         )
     } else if (currentPanel != null) {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        LukaBottomSheet(
             onDismissRequest = { if (!saving) panel = null },
             sheetState = sheet,
             containerColor = BgScreenTop,
@@ -468,19 +478,24 @@ private fun BulkEditor(
         }
         SavePlanButton("Önizle", false, template != null && selected.isNotEmpty(), null) { showPreview = true }
     } else {
-        Text("${template?.name} · ${people.size} kişi · ${people.size * dates.size} hücre",
-            style = MaterialTheme.typography.titleMedium)
-        Text(dates.joinToString(" · ") { it.dayName }, color = TextSoft)
-        Text(people.joinToString(", ") { it.fullName }, color = TextSoft)
+        LukaCard(elevation = 0.dp) {
+            Text(template?.name.orEmpty(), style = MaterialTheme.typography.titleLarge, color = BossGradStart)
+            template?.let { Text(timeRange(it.startTime, it.endTime), color = TextSoft) }
+            Spacer(Modifier.height(8.dp))
+            Text("${people.size} personel · ${dates.size} gün · ${people.size * dates.size} atama", color = TextMain)
+            Text("${dates.first().displayDate} - ${dates.last().displayDate}", color = TextMuted)
+        }
+        Text("Atanacak personel", style = MaterialTheme.typography.titleSmall)
+        people.forEach { person ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(person.fullName, Modifier.weight(1f), color = TextMain)
+                Text("${dates.size} gün", color = TextMuted)
+            }
+        }
         if (occupied > 0) {
             LukaCard(elevation = 0.dp, backgroundColor = PillWarn.bg) {
                 Text("$occupied dolu hücrenin üzerine yazılacak. Mevcut vardiyalar ve izin günleri değişebilir.",
                     color = PillWarn.fg, style = MaterialTheme.typography.bodyMedium)
-            }
-            dates.forEach { day ->
-                val affected = people.filter { person -> person.cells.any { it.date == day.isoDate && it.shiftInstanceId != null } }
-                if (affected.isNotEmpty()) Text("${day.dayName}: ${affected.joinToString(", ") { it.fullName }}",
-                    style = MaterialTheme.typography.bodySmall)
             }
         }
         TextButton(enabled = !saving, onClick = { showPreview = false }) { Text("Seçimi değiştir") }
@@ -574,17 +589,18 @@ private fun RepeatEditor(
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, BorderSoft)
                 ) {
-                    Row(
+                    Column(
                         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(day.dayName, Modifier.width(54.dp), color = BossGradStart,
-                            style = MaterialTheme.typography.labelMedium)
-                        Text(summary, Modifier.weight(1f), color = TextMain,
-                            style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${day.displayDate} · ${day.dayName}", Modifier.weight(1f), color = BossGradStart,
+                            style = MaterialTheme.typography.labelLarge)
                         if (protected) StatusPill("Korunacak", pillColor = PillNeutral)
                         else if (rule?.isOffDay == true) StatusPill("İzin günü", pillColor = PillNeutral)
+                        }
+                        Text(summary, color = TextMain,
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -616,30 +632,14 @@ private fun SheetHeading(title: String, subtitle: String) {
 
 @Composable
 private fun ChoiceRow(title: String, detail: String?, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        color = if (selected) PillBlue.bg else White,
-        border = BorderStroke(1.dp, if (selected) BossGradEnd else BorderSoft),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = if (selected) BossGradStart else TextMain)
-                if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = TextSoft)
-            }
-            if (selected) Icon(Icons.Default.Check, contentDescription = "Seçili",
-                tint = BossGradStart, modifier = Modifier.padding(start = 8.dp).size(20.dp))
-        }
-    }
+    LukaChoiceRow(title = title, detail = detail, selected = selected, enabled = enabled, onClick = onClick)
 }
 
 @Composable
 private fun SavePlanButton(label: String, saving: Boolean, enabled: Boolean, error: String?, onClick: () -> Unit) {
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     PrimaryButton(text = if (saving) "Kaydediliyor…" else label,
-        onClick = onClick, enabled = enabled && !saving, gradient = BossGradient)
+        onClick = onClick, enabled = enabled && !saving, gradient = BossGradient, loading = saving)
 }
 
 private fun timeRange(start: String?, end: String?) = "${start.orEmpty().take(5)}–${end.orEmpty().take(5)}"

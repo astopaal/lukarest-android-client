@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Close
@@ -20,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
@@ -29,6 +27,7 @@ import com.lukasoft.lukarest.data.api.ShiftTemplateDto
 import com.lukasoft.lukarest.data.model.ShiftColorKey
 import com.lukasoft.lukarest.data.model.ShiftDefinition
 import com.lukasoft.lukarest.ui.components.LukaCard
+import com.lukasoft.lukarest.ui.components.LukaTimeField
 import com.lukasoft.lukarest.ui.components.PrimaryButton
 import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.components.TopPill
@@ -258,36 +257,15 @@ fun BossShiftAddScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Başlangıç",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextMain
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                OutlinedTextField(
-                                    value = startTime,
-                                    onValueChange = {
-                                        if (it.length <= 5) startTime = it
-                                    },
-                                    placeholder = { Text("09:00", color = Color(0xFFCBD5E1)) },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = StaffGradStart,
-                                        unfocusedBorderColor = BorderSoft,
-                                        focusedContainerColor = Color(0xFFF8FAFC),
-                                        unfocusedContainerColor = Color(0xFFF8FAFC)
-                                    )
-                                )
-                            }
+                            LukaTimeField(
+                                value = startTime,
+                                onValueChange = { startTime = it },
+                                label = "Başlangıç",
+                                modifier = Modifier.weight(1f)
+                            )
 
                             Box(
                                 modifier = Modifier
-                                    .padding(top = 18.dp)
                                     .size(24.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -299,32 +277,12 @@ fun BossShiftAddScreen(
                                 )
                             }
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Bitiş",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextMain
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                OutlinedTextField(
-                                    value = endTime,
-                                    onValueChange = {
-                                        if (it.length <= 5) endTime = it
-                                    },
-                                    placeholder = { Text("17:00", color = Color(0xFFCBD5E1)) },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = StaffGradStart,
-                                        unfocusedBorderColor = BorderSoft,
-                                        focusedContainerColor = Color(0xFFF8FAFC),
-                                        unfocusedContainerColor = Color(0xFFF8FAFC)
-                                    )
-                                )
-                            }
+                            LukaTimeField(
+                                value = endTime,
+                                onValueChange = { endTime = it },
+                                label = "Bitiş",
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -396,6 +354,7 @@ fun BossShiftAddScreen(
             ) {
                 PrimaryButton(
                     text = if (isLoading) "Kaydediliyor..." else "Vardiyayı Kaydet",
+                    loading = isLoading,
                     onClick = handleSave,
                     enabled = !isLoading,
                     gradient = BossGradient

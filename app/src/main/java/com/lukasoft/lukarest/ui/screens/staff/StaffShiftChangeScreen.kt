@@ -1,6 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.staff
 
 import com.lukasoft.lukarest.ui.components.LukaFeedback
+import com.lukasoft.lukarest.ui.components.LukaTimeField
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,6 +51,7 @@ fun StaffShiftChangeScreen(
     var endTime by remember { mutableStateOf("18:00") }
     var reason by remember { mutableStateOf(ShiftReason.APPOINTMENT) }
     var note by remember { mutableStateOf("") }
+    var priority by remember { mutableStateOf("Medium") }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -62,6 +64,16 @@ fun StaffShiftChangeScreen(
                 isSubmitting = true
                 try {
                     val targetDate = weekDays.getOrNull(selectedDay)?.isoDate ?: DateUtils.getTodayIso()
+                    val schedule = ApiClient.shiftsService.getMyShifts(currentMonday)
+                    if (!schedule.isSuccessful) {
+                        errorMessage = "Güncel vardiya alınamadı. Tekrar deneyin."
+                        return@launch
+                    }
+                    val currentShift = schedule.body()?.days?.firstOrNull { it.date == targetDate && !it.isOffDay }
+                    if (currentShift?.startTime == null || currentShift.endTime == null) {
+                        errorMessage = "Seçilen günde değiştirilebilecek bir vardiya yok."
+                        return@launch
+                    }
                     val reasonDesc = if (note.trim().length >= 5) {
                         note.trim()
                     } else {
@@ -71,11 +83,12 @@ fun StaffShiftChangeScreen(
                     val res = ApiClient.requestsService.createMyRequest(
                         CreateStaffRequestCommand(
                             requestType = "ShiftHourChange",
+                            priority = priority,
                             reason = reasonDesc,
                             shiftChange = ShiftChangeRequestDetailsDto(
                                 targetDate = targetDate,
-                                currentStartTime = "09:00",
-                                currentEndTime = "17:00",
+                                currentStartTime = currentShift.startTime,
+                                currentEndTime = currentShift.endTime,
                                 proposedStartTime = startTime.trim(),
                                 proposedEndTime = endTime.trim()
                             )
@@ -85,7 +98,7 @@ fun StaffShiftChangeScreen(
                         LukaFeedback.show("Talebiniz yöneticiye iletildi")
                         onNavigateBack()
                     } else {
-                        errorMessage = "Talep iletilemedi: ${res.code()}"
+                        errorMessage = com.lukasoft.lukarest.data.api.apiErrorMessage(res.errorBody()?.string(), "Talep iletilemedi: ${res.code()}")
                     }
                 } catch (e: Exception) {
                     errorMessage = "Hata: ${e.localizedMessage}"
@@ -124,6 +137,7 @@ fun StaffShiftChangeScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Değiştirilecek Gün Seçimi
+            com.lukasoft.lukarest.ui.components.PriorityField(priority, enabled = !isSubmitting, onChange = { priority = it })
             Text(text = "Değiştirilecek gün", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextMain)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -170,24 +184,20 @@ fun StaffShiftChangeScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 LukaCard(modifier = Modifier.weight(1f), contentPadding = PaddingValues(10.dp)) {
-                    Text(text = "Başlangıç", fontSize = 11.sp, color = TextMuted)
-                    OutlinedTextField(
+                    LukaTimeField(
                         value = startTime,
                         onValueChange = { startTime = it },
-                        placeholder = { Text("09:00") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        label = "Başlangıç",
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
                 LukaCard(modifier = Modifier.weight(1f), contentPadding = PaddingValues(10.dp)) {
-                    Text(text = "Bitiş", fontSize = 11.sp, color = TextMuted)
-                    OutlinedTextField(
+                    LukaTimeField(
                         value = endTime,
                         onValueChange = { endTime = it },
-                        placeholder = { Text("17:00") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                        label = "Bitiş",
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -243,6 +253,7 @@ fun StaffShiftChangeScreen(
 
             PrimaryButton(
                 text = if (isSubmitting) "Gönderiliyor..." else "Talebi Gönder",
+                loading = isSubmitting,
                 onClick = { if (!isSubmitting) handleSubmit() },
                 gradient = StaffGradient
             )
