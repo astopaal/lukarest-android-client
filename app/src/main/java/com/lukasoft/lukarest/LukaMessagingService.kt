@@ -16,6 +16,7 @@ class LukaMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val type = message.data["type"] ?: return
         val id = message.data["id"] ?: return
+        val notificationId = message.data["notificationId"] ?: return
         val manager = NotificationManagerCompat.from(this)
         if (!manager.areNotificationsEnabled()) return
         val channelId = "operations"
@@ -24,11 +25,14 @@ class LukaMessagingService : FirebaseMessagingService() {
                 NotificationChannel(channelId, "Operasyon bildirimleri", NotificationManager.IMPORTANCE_DEFAULT)
             )
         }
-        val requestCode = (type to id).hashCode()
+        val requestCode = notificationId.hashCode()
         val intent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra("type", type)
             .putExtra("id", id)
+            .putExtra("notificationId", notificationId)
+            .putExtra("priority", message.data["priority"])
+            .setData(android.net.Uri.parse("lukarest://notification/$notificationId"))
         val open = PendingIntent.getActivity(this, requestCode, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val notification = NotificationCompat.Builder(this, channelId)

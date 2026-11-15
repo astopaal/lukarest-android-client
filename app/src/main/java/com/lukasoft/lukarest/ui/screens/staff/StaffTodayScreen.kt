@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +22,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
@@ -38,9 +38,9 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun StaffTodayScreen(
+    onOpenNotifications: () -> Unit,
     viewModel: LukaViewModel,
     onNavigateToTasks: () -> Unit,
-    onNavigateToPair: () -> Unit,
     onNavigateToTaskComplete: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -116,7 +116,7 @@ fun StaffTodayScreen(
                     attendanceData = res.body()
                     LukaFeedback.show("Vardiyaya giriş yapıldı!")
                 } else {
-                    LukaFeedback.show("Giriş yapılamadı: ${res.code()}")
+                    LukaFeedback.show(com.lukasoft.lukarest.data.api.apiErrorMessage(res.errorBody()?.string(), "Giriş yapılamadı: ${res.code()}"))
                 }
             } catch (e: Exception) {
                 LukaFeedback.show("Hata: ${e.localizedMessage}")
@@ -202,8 +202,9 @@ fun StaffTodayScreen(
                     subtitle = currentUser?.fullName ?: AuthStore.staffName.value ?: "Personel",
                     initials = "P",
                     gradient = StaffGradient,
-                    actionIcon = Icons.Default.QrCode,
-                    onActionClick = onNavigateToPair
+                    actionIcon = Icons.Default.Notifications,
+                    actionDescription = "Bildirimleri aç",
+                    onActionClick = onOpenNotifications
                 )
             }
         },
@@ -498,75 +499,7 @@ fun StaffTodayScreen(
                 }
             } else {
                 items(todayTasks) { task ->
-                    val isDone = task.status == TaskStatus.DONE
-
-                    LukaCard {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Checkbox
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isDone) StaffGradStart else Color.Transparent)
-                                    .clickable {
-                                        if (!isDone) {
-                                            onNavigateToTaskComplete(task.id)
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isDone) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Done",
-                                        tint = White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(CircleShape)
-                                            .background(Color.LightGray.copy(alpha = 0.35f))
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = task.title,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isDone) TextMuted else TextMain,
-                                    textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
-                                )
-                                Text(
-                                    text = "${task.startTime}${if (task.endTime != null) " — ${task.endTime}" else ""}",
-                                    fontSize = 12.sp,
-                                    color = TextMuted
-                                )
-                            task.description?.takeIf { it.isNotBlank() }?.let {
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(it, fontSize = 12.sp, color = TextSoft, maxLines = 2)
-                            }
-                            }
-
-                            if (task.mediaRequired) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(modifier = Modifier.clickable(enabled = !isDone) { onNavigateToTaskComplete(task.id) }) {
-                                    StatusPill(
-                                        text = if (task.hasMedia) "Kanıt Eklendi" else "Fotoğraf/video ekle",
-                                        pillColor = if (isDone) PillOk else PillBlue
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    com.lukasoft.lukarest.ui.components.TaskListCard(task, onOpen = { onNavigateToTaskComplete(task.id) })
                 }
             }
 

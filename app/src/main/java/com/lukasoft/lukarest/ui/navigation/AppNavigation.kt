@@ -31,7 +31,8 @@ import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 @Composable
 fun AppNavigation(
     initialToken: String? = null,
-    pendingPush: Pair<String, String>? = null,
+    onInitialTokenHandled: () -> Unit = {},
+    pendingPush: com.lukasoft.lukarest.data.api.PushPayload? = null,
     onPushHandled: () -> Unit = {},
     navController: NavHostController = rememberNavController(),
     viewModel: LukaViewModel = viewModel()
@@ -42,6 +43,29 @@ fun AppNavigation(
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: ""
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && !AuthStore.accessToken.value.isNullOrBlank()) {
+                sessionScope.launch {
+                    try {
+                        val response = com.lukasoft.lukarest.data.api.ApiClient.meService.getMe()
+                        if (response.isSuccessful) response.body()?.let { AuthStore.updateUser(it) }
+                        else if (response.code() == 401) AuthStore.logout()
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e
+                    } catch (_: java.io.IOException) { }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(role, currentRoute) {
+        if (role == AppRole.NONE && (currentRoute.startsWith("staff/") && currentRoute != Screen.StaffPair.route || currentRoute.startsWith("boss/") && currentRoute != Screen.Login.route)) {
+            viewModel.setTasks(emptyList())
+            navController.navigate(Screen.StaffPair.route) { popUpTo(0) { inclusive = true }; launchSingleTop = true }
+        }
+    }
 
     // Staff Alt Bar Sekmeleri
     val staffNavItems = listOf(
@@ -63,25 +87,41 @@ fun AppNavigation(
     )
     val bossAllItems = bossLeftItems + bossRightItems
 
-    val showStaffBottomBar = currentRoute in staffNavItems.map { it.route }
-    val showBossBottomBar = currentRoute in bossAllItems.map { it.route }
+    val showStaffBottomBar = role == AppRole.STAFF && currentRoute in staffNavItems.map { it.route }
+    val showBossBottomBar = role == AppRole.BOSS && (currentRoute in bossAllItems.map { it.route } || currentRoute == Screen.OperationalNotes.route)
 
     val me by AuthStore.me.collectAsState()
-    LaunchedEffect(pendingPush, currentRoute, me, role) {
-        val (type, id) = pendingPush ?: return@LaunchedEffect
+    var drawerPush by remember { mutableStateOf<com.lukasoft.lukarest.data.api.PushPayload?>(null) }
+    val activePush = drawerPush ?: pendingPush
+    LaunchedEffect(activePush, currentRoute, me, role) {
+        val push = activePush ?: return@LaunchedEffect
+        val type = push.type.removeSuffix(".reminder")
+        val id = push.id
         if (me == null || currentRoute.isEmpty() || currentRoute == "gate" ||
             currentRoute == Screen.BossCompanySetup.route || currentRoute.startsWith("verify")) return@LaunchedEffect
         val validId = runCatching { java.util.UUID.fromString(id) }.isSuccess
+        push.notificationId?.let { notificationId ->
+            try {
+                val result = com.lukasoft.lukarest.data.api.ApiClient.notificationsService.open(notificationId)
+                if (!result.isSuccessful) com.lukasoft.lukarest.ui.components.LukaFeedback.show("Bildirim açılışı kaydedilemedi. Bildirim panelinden tekrar açabilirsiniz.")
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (_: java.io.IOException) { com.lukasoft.lukarest.ui.components.LukaFeedback.show("Bildirim açılışı kaydedilemedi. Bağlantınızı kontrol edin.") }
+        }
         val destination = when (type) {
+            "request.mentioned" -> if (role == AppRole.STAFF) Screen.StaffRequests.route else if (validId) Screen.BossRequestDetail.createRoute(id) else null
+            "task.approval_rejected", "task.due_soon", "task.critical_open", "task.approval_expired" -> if (role == AppRole.STAFF) Screen.StaffTasks.route else Screen.BossTasks.route
+            "shift.coverage_gap" -> if (role == AppRole.BOSS) Screen.BossShifts.route else Screen.StaffShifts.route
             "staff_request.created" -> if (role == AppRole.BOSS && validId)
                 Screen.BossRequestDetail.createRoute(id) else null
             "staff_request.decided" -> if (role == AppRole.STAFF) Screen.StaffRequests.route else null
             "task.assigned" -> if (role == AppRole.STAFF) Screen.StaffTasks.route else null
+            "task.completed" -> if (role == AppRole.BOSS) Screen.BossTasks.route else null
             "shift.changed", "shift.week_assigned" -> if (role == AppRole.STAFF) Screen.StaffShifts.route else null
-            "notice.created" -> Screen.OperationalNotes.route
+            "notice.created", "notice.mentioned" -> if (validId) "boss/notes/$id" else Screen.OperationalNotes.route
             else -> null
         }
         onPushHandled()
+        drawerPush = null
         if (destination != null) {
             navController.navigate(destination) {
                 if (currentRoute == destination) popUpTo(currentRoute) { inclusive = true }
@@ -90,6 +130,7 @@ fun AppNavigation(
         }
     }
 
+    com.lukasoft.lukarest.ui.components.NotificationDrawer(onSelect = { drawerPush = it }) { openNotifications ->
     Scaffold(
         modifier = Modifier.imePadding(),
         bottomBar = {
@@ -141,6 +182,7 @@ fun AppNavigation(
                         navController.navigate("verify?token=$initialToken") {
                             popUpTo("gate") { inclusive = true }
                         }
+                        onInitialTokenHandled()
                     } else {
                         if (!AuthStore.accessToken.value.isNullOrBlank()) {
                             try {
@@ -232,9 +274,9 @@ fun AppNavigation(
 
             composable(Screen.StaffToday.route) {
                 StaffTodayScreen(
+                    onOpenNotifications = openNotifications,
                     viewModel = viewModel,
                     onNavigateToTasks = { navController.navigate(Screen.StaffTasks.route) },
-                    onNavigateToPair = { navController.navigate(Screen.StaffPair.route) },
                     onNavigateToTaskComplete = { taskId ->
                         navController.navigate(Screen.StaffTaskComplete.createRoute(taskId))
                     }
@@ -243,7 +285,9 @@ fun AppNavigation(
 
             composable(Screen.StaffShifts.route) {
                 StaffShiftsScreen(
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onNavigateToShiftChange = { navController.navigate(Screen.StaffShiftChange.route) },
+                    onNavigateToLeaveChange = { navController.navigate(Screen.StaffLeaveChange.route) }
                 )
             }
 
@@ -267,6 +311,7 @@ fun AppNavigation(
 
             composable(Screen.StaffRequests.route) {
                 StaffRequestsScreen(
+                    onNavigateToShifts = { navController.navigate(Screen.StaffShifts.route) },
                     viewModel = viewModel,
                     onNavigateToShiftChange = { navController.navigate(Screen.StaffShiftChange.route) },
                     onNavigateToLeaveChange = { navController.navigate(Screen.StaffLeaveChange.route) }
@@ -290,6 +335,7 @@ fun AppNavigation(
             // ── Boss Ekranları ──
             composable(Screen.BossDashboard.route) {
                 BossDashboardScreen(
+                    onOpenNotifications = openNotifications,
                     viewModel = viewModel,
                     onNavigateToRequests = { navController.navigate(Screen.BossRequests.route) },
                     onNavigateToStaff = { navController.navigate("boss/staff") },
@@ -334,6 +380,7 @@ fun AppNavigation(
             composable(Screen.BossTasks.route) {
                 BossTasksScreen(
                     viewModel = viewModel,
+                    onNavigateToDefinitions = { navController.navigate("boss/tasks/definitions") },
                     onNavigateToCreateTask = { navController.navigate(Screen.BossCreateTask.route) },
                     onLogout = {
                         sessionScope.launch {
@@ -349,6 +396,21 @@ fun AppNavigation(
             composable(Screen.BossCreateTask.route) {
                 BossTaskCreateScreen(
                     onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable("boss/tasks/definitions") {
+                BossTaskDefinitionsScreen(
+                    onBack = { navController.popBackStack() },
+                    onEdit = { id -> navController.navigate("boss/tasks/definitions/$id") }
+                )
+            }
+
+            composable("boss/tasks/definitions/{id}") { entry ->
+                BossTaskDefinitionsScreen(
+                    onBack = { navController.popBackStack() },
+                    onEdit = {},
+                    definitionId = entry.arguments?.getString("id")
                 )
             }
 
@@ -372,6 +434,7 @@ fun AppNavigation(
             composable(Screen.BossRequestDetail.route) { backStackEntry ->
                 val reqId = backStackEntry.arguments?.getString("requestId") ?: ""
                 BossRequestDetailScreen(
+                    onNavigateToShifts = { navController.navigate(Screen.BossShifts.route) },
                     requestId = reqId,
                     viewModel = viewModel,
                     onNavigateBack = { navController.popBackStack() }
@@ -387,7 +450,12 @@ fun AppNavigation(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
+
+            composable("boss/notes/{noteId}") { entry ->
+                OperationalNotesScreen(onNavigateBack = { navController.popBackStack() }, initialNoteId = entry.arguments?.getString("noteId"))
+            }
         }
+    }
     }
 }
 

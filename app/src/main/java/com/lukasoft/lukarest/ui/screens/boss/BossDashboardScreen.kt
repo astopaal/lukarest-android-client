@@ -1,5 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
+import com.lukasoft.lukarest.ui.components.LukaAccordionHeader
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -15,6 +17,7 @@ import kotlinx.coroutines.Job
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -63,6 +66,7 @@ fun BossDashboardScreen(
     onNavigateToStaff: () -> Unit,
     onNavigateToBranches: () -> Unit = {},
     onNavigateToNotes: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onNavigateToShifts: () -> Unit,
     onNavigateToTasks: () -> Unit,
     onLogout: () -> Unit
@@ -275,7 +279,8 @@ fun BossDashboardScreen(
                             Triple("Görevler", Icons.Default.TaskAlt, onNavigateToTasks),
                             Triple("Talepler", Icons.Default.ListAlt, onNavigateToRequests),
                             Triple("Personel yönetimi", Icons.Default.People, onNavigateToStaff),
-                            Triple("Operasyon defteri", Icons.Default.Description, onNavigateToNotes)
+                            Triple("Operasyon defteri", Icons.Default.Description, onNavigateToNotes),
+                            Triple("Bildirimler", Icons.Default.Notifications, onOpenNotifications)
                         )
                         destinations.forEach { (label, icon, navigate) ->
                             DashboardMenuItem(label, icon) {
@@ -415,13 +420,10 @@ fun BossDashboardScreen(
             items(people, key = { it.userId }) { person ->
                 val expanded = expandedPerson == person.userId
                 LukaCard(contentPadding = PaddingValues(0.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clickable(onClickLabel = if (expanded) "Vardiyaları gizle" else "Vardiyaları göster") {
-                                expandedPerson = if (expanded) null else person.userId
-                            }
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    LukaAccordionHeader(
+                        expanded = expanded,
+                        onToggle = { expandedPerson = if (expanded) null else person.userId },
+                        modifier = Modifier.padding(14.dp)
                     ) {
                         val initials = person.fullName.split(' ').filter { it.isNotBlank() }
                             .take(2).joinToString("") { it.take(1) }

@@ -26,7 +26,8 @@ fun VerifyScreen(
     token: String?,
     onNavigateToDashboard: () -> Unit,
     onNavigateToCompanySetup: () -> Unit = onNavigateToDashboard,
-    onNavigateToLogin: () -> Unit
+    onNavigateToLogin: () -> Unit,
+    authService: com.lukasoft.lukarest.data.api.AuthService = ApiClient.authService
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(true) }
@@ -41,10 +42,7 @@ fun VerifyScreen(
 
         coroutineScope.launch {
             try {
-                // Eski oturum token'ı Authorization olarak gitmesin diye temizle
-                AuthStore.clearTokens()
-
-                val response = ApiClient.authService.verifyPatronEmail(
+                val response = authService.verifyPatronEmail(
                     VerifyPatronEmailLoginCommand(token)
                 )
                 if (response.isSuccessful && response.body() != null) {

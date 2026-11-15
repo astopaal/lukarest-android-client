@@ -41,23 +41,58 @@ fun StaffPairScreen(
     var pairingCode by remember { mutableStateOf("") }
     var currentSessionId by remember { mutableStateOf<String?>(null) }
     var currentQrToken by remember { mutableStateOf<String?>(null) }
+    var expiresAtUtc by remember { mutableStateOf<String?>(null) }
+    var remainingSeconds by remember { mutableStateOf(0L) }
+    var claimed by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var exchanging by remember { mutableStateOf(false) }
+    var generation by remember { mutableIntStateOf(0) }
 
     var pairingError by remember { mutableStateOf<String?>(null) }
 
     val createSession: () -> Unit = {
         coroutineScope.launch {
+            if (busy) return@launch
+            busy = true
             try {
                 pairingError = null
-                val res = ApiClient.staffOnboardingService.createQrSession()
+                val id = currentSessionId
+                var res = if (id != null && !claimed) ApiClient.staffOnboardingService.renewQrSession(id)
+                    else ApiClient.staffOnboardingService.createQrSession()
+                if (!res.isSuccessful && qrErrorCode(res.errorBody()?.string()) == "qr_session_claimed") {
+                    res = ApiClient.staffOnboardingService.createQrSession()
+                }
                 val body = res.body()
                 if (res.isSuccessful && body != null) {
                     pairingCode = body.pairingCode
                     currentQrToken = body.qrToken
                     currentSessionId = body.sessionId
+                    expiresAtUtc = body.expiresAtUtc
+                    claimed = false
+                    generation++
+                } else {
+                    pairingError = "QR oturumu yenilenemedi. Tekrar deneyin."
                 }
-            } catch (_: Exception) {
-                // Keep the current QR visible; the user can retry with the refresh button.
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: java.io.IOException) {
+                pairingError = "Sunucuya ulaşılamadı. Tekrar deneyin."
+            } finally {
+                busy = false
             }
+        }
+    }
+
+    LaunchedEffect(expiresAtUtc) {
+        val expiry = runCatching {
+            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ROOT).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+                isLenient = false
+            }.parse(expiresAtUtc.orEmpty().take(19))?.time
+        }.getOrNull()
+        while (isActive && expiry != null) {
+            remainingSeconds = ((expiry - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(0)
+            delay(1000)
         }
     }
 
@@ -66,7 +101,7 @@ fun StaffPairScreen(
     }
 
     // Patron onayladı mı polling döngüsü
-    LaunchedEffect(currentSessionId, currentQrToken) {
+    LaunchedEffect(currentSessionId, currentQrToken, generation) {
         val sessionId = currentSessionId ?: return@LaunchedEffect
         val qrToken = currentQrToken
         while (isActive) {
@@ -76,25 +111,30 @@ fun StaffPairScreen(
                 val statusRes = ApiClient.staffOnboardingService.getQrSessionStatus(sessionId)
                 if (!statusRes.isSuccessful) {
                     val errorBody = statusRes.errorBody()?.string()
-                    val errorCode = runCatching {
-                        val problem = JSONObject(errorBody.orEmpty())
-                        problem.optString("title").ifBlank { problem.optString("code") }
-                    }.getOrDefault("")
+                    val errorCode = qrErrorCode(errorBody)
                     if (errorCode.equals("qr_session_expired", ignoreCase = true)) {
-                        currentSessionId = null
-                        currentQrToken = null
+                        pairingCode = ""
                         createSession()
                         break
                     }
                     continue
                 }
                 val status = statusRes.body() ?: continue
+                claimed = status.isClaimed
+                status.expiresAtUtc?.let { expiresAtUtc = it }
                 if (!status.canExchange || qrToken == null) continue
+                exchanging = true
                 val exchange = ApiClient.staffOnboardingService.exchangeQrSession(
                     ExchangeStaffQrSessionCommand(sessionId, qrToken)
                 )
                 val tokens = exchange.body()
                 if (!exchange.isSuccessful || tokens == null) {
+                    if (exchange.code() == 400 && qrErrorCode(exchange.errorBody()?.string()) == "qr_session_expired") {
+                        claimed = true
+                        pairingCode = ""
+                        createSession()
+                        break
+                    }
                     pairingError = "Eşleştirme tamamlanamadı. QR kodunu yenileyin."
                     break
                 }
@@ -117,6 +157,8 @@ fun StaffPairScreen(
                     pairingError = "Personel profili alınamadı. QR kodunu yenileyin."
                     break
                 }
+            } finally {
+                exchanging = false
             }
         }
     }
@@ -141,6 +183,7 @@ fun StaffPairScreen(
                     title = "Şubeye Katıl",
                     subtitle = "Personel Eşleştirme",
                     initials = "QR",
+                    showAction = false,
                     gradient = StaffGradient
                 )
             }
@@ -158,6 +201,8 @@ fun StaffPairScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             pairingError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Text(if (busy) "QR hazırlanıyor..." else if (expiresAtUtc == null) "Oturum süresi sunucudan bekleniyor"
+                else "${if (claimed) "Giriş" else "Eşleştirme"} için kalan süre: ${remainingSeconds / 60}:${(remainingSeconds % 60).toString().padStart(2, '0')}", color = TextMain)
             StatusPill(text = "Henüz hiçbir şubeye bağlı değilsin", pillColor = PillBlue)
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -190,7 +235,7 @@ fun StaffPairScreen(
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (pairingCode.isNotBlank()) QrCodeView(
+                    if (pairingCode.isNotBlank() && remainingSeconds > 0 && !busy) QrCodeView(
                         content = "luka-staff:$pairingCode",
                         size = 210.dp
                     )
@@ -207,7 +252,7 @@ fun StaffPairScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = pairingCode,
+                    text = if (busy) "" else pairingCode,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = BossGradStart,
@@ -242,6 +287,7 @@ fun StaffPairScreen(
             ) {
                 OutlinedButton(
                     onClick = handleRefreshQr,
+                    enabled = !busy && !exchanging,
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp),
@@ -265,5 +311,10 @@ fun StaffPairScreen(
         }
     }
 }
+
+private fun qrErrorCode(body: String?): String = runCatching {
+    val problem = JSONObject(body.orEmpty())
+    problem.optString("code").ifBlank { problem.optString("title") }
+}.getOrDefault("")
 
 

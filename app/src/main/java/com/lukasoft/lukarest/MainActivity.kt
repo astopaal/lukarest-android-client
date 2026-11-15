@@ -28,12 +28,12 @@ import com.lukasoft.lukarest.ui.theme.LukarestTheme
 class MainActivity : ComponentActivity() {
     private val deepLinkTokenState = mutableStateOf<String?>(null)
 
-    private val pushState = mutableStateOf<Pair<String, String>?>(null)
+    private val pushState = mutableStateOf<com.lukasoft.lukarest.data.api.PushPayload?>(null)
 
     private fun readPush(intent: Intent?) {
         val type = intent?.getStringExtra("type") ?: return
         val id = intent.getStringExtra("id") ?: return
-        pushState.value = type to id
+        pushState.value = com.lukasoft.lukarest.data.api.PushPayload(type, id, intent.getStringExtra("notificationId"), intent.getStringExtra("priority"))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
 
         // Kalıcı depolamayı başlat (Session Persistence)
         AuthStore.init(applicationContext)
+        ApiClient.setValidationErrorHandler { com.lukasoft.lukarest.ui.components.LukaFeedback.show(it) }
 
         // API Client için AccessToken sağlayıcısı
         ApiClient.setAccessTokenProvider {
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
 
         // Deep link kontrolü (luka://auth/verify?token=... veya http://...)
         deepLinkTokenState.value = intent?.data?.getQueryParameter("token")
+        intent?.data = null
 
         readPush(intent)
 
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     AppNavigation(
                         initialToken = deepLinkTokenState.value,
+                        onInitialTokenHandled = { deepLinkTokenState.value = null },
                         pendingPush = pushState.value,
                         onPushHandled = { pushState.value = null }
                     )
@@ -101,6 +104,7 @@ class MainActivity : ComponentActivity() {
         val token = intent.data?.getQueryParameter("token")
         if (!token.isNullOrBlank()) {
             deepLinkTokenState.value = token
+            intent.data = null
         }
     }
 }

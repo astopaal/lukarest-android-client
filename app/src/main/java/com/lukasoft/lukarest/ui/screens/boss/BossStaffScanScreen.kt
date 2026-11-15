@@ -1,5 +1,8 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
+import com.lukasoft.lukarest.ui.components.LukaBottomSheet
+import com.lukasoft.lukarest.ui.components.LukaSearchField
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -102,9 +105,18 @@ fun BossStaffScanScreen(
                         )
                     )
                     isSuccess = result.isSuccessful
+                    val errorCode = runCatching {
+                        val problem = org.json.JSONObject(result.errorBody()?.string().orEmpty())
+                        problem.optString("code").ifBlank { problem.optString("title") }
+                    }.getOrDefault("")
                     feedbackMessage = if (isSuccess) "QR eşleştirildi. Personel cihazında giriş tamamlanabilir."
                     else when (result.code()) {
-                        400 -> "QR kodunu ve personel bilgilerini kontrol edin."
+                        400 -> when (errorCode) {
+                            "qr_session_expired" -> "QR kodunun süresi dolmuş. Personelin cihazından kodu yenilemesini isteyin."
+                            "qr_session_claimed" -> "Bu QR oturumu zaten eşleştirilmiş. Personelin cihazındaki giriş durumunu kontrol edin."
+                            else -> "QR kodunu ve personel bilgilerini kontrol edin."
+                        }
+                        401 -> "Yönetici oturumunun süresi dolmuş. Yeniden giriş yapın."
                         403 -> "Bu şubede QR eşleştirme yetkiniz yok."
                         404 -> "QR oturumu bulunamadı. Personel yeni bir kod oluşturabilir."
                         409 -> "Telefon numarası başka bir kayıtta kullanılıyor."
@@ -125,7 +137,7 @@ fun BossStaffScanScreen(
     }
 
     candidates?.let { staff ->
-        ModalBottomSheet(
+        LukaBottomSheet(
             onDismissRequest = { candidates = null; staffSearch = "" },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = BgScreenTop,
@@ -134,10 +146,9 @@ fun BossStaffScanScreen(
             Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Personeli seç", style = MaterialTheme.typography.headlineSmall, color = BossGradStart)
                 Text("Cihazı eşleştireceğin kişiyi bul.", color = TextSoft)
-                OutlinedTextField(
+                LukaSearchField(
                     value = staffSearch, onValueChange = { staffSearch = it },
-                    placeholder = { Text("Ad veya telefon ara") }, singleLine = true,
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()
+                    label = "Ad veya telefon ara"
                 )
                 val filtered = staff.filter { it.fullName.contains(staffSearch, ignoreCase = true) || it.phoneNumber.contains(staffSearch) }
                 androidx.compose.foundation.lazy.LazyColumn(
@@ -502,6 +513,7 @@ fun BossStaffScanScreen(
                             null -> "Yeni Personeli Bağla"
                         },
                         onClick = handleSaveStaff,
+                        loading = isSubmitting,
                         enabled = !isSubmitting && scannedCode != null && name.trim().length >= 2 &&
                             phone.isNotBlank() && birthDate.matches(Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}")),
                         gradient = BossGradient
