@@ -58,7 +58,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" android:host="192.168.1.129" android:port="5180" android:pathPrefix="/auth/verify" />
+                <data android:scheme="http" android:host="192.168.1.109" android:port="5180" android:pathPrefix="/auth/verify" />
             </intent-filter>
         </activity>
     </application>
