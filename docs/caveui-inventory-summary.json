@@ -1,0 +1,39 @@
+{
+  "source_commit": "2e724254e9446acc086720d7d74af6a17b67d7f7",
+  "total": 821,
+  "categories": {
+    "avatars": 12,
+    "badges": 37,
+    "buttons": 75,
+    "cards": 220,
+    "charts": 60,
+    "checks": 3,
+    "choices": 3,
+    "command": 11,
+    "disclosures": 11,
+    "feedback": 11,
+    "hints": 11,
+    "icons": 62,
+    "inputs": 67,
+    "loaders": 72,
+    "menus": 11,
+    "navigation": 11,
+    "overlays": 11,
+    "pickers": 11,
+    "selects": 11,
+    "sliders": 11,
+    "toggles": 100
+  },
+  "decisions": {
+    "Alınmadı": 756,
+    "Mevcut korundu": 38,
+    "Uyarlandı": 27
+  },
+  "source_flags": {
+    "fixed-color": 315,
+    "infinite-motion": 175,
+    "fixed-width": 248,
+    "empty-handler": 93,
+    "external-helper": 29
+  }
+}

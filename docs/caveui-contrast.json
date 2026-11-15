@@ -1,0 +1,149 @@
+{
+  "scope": "Migrated shared component token pairs, not a full-app WCAG certification",
+  "pairs": [
+    {
+      "pair": "TextMain / White",
+      "ratio": 16.491,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextMain / BgBoard",
+      "ratio": 14.782,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextMain / BgScreenTop",
+      "ratio": 15.33,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextSoft / White",
+      "ratio": 8.483,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextSoft / BgBoard",
+      "ratio": 7.604,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextSoft / BgScreenTop",
+      "ratio": 7.885,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextMuted / White",
+      "ratio": 5.946,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextMuted / BgBoard",
+      "ratio": 5.33,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TextMuted / BgScreenTop",
+      "ratio": 5.527,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "PillBlue",
+      "ratio": 7.812,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "PillSky",
+      "ratio": 5.876,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "PillOk",
+      "ratio": 5.916,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "PillWarn",
+      "ratio": 6.238,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "PillErr",
+      "ratio": 6.229,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "PillNeutral",
+      "ratio": 7.251,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "White / BtnGradient (101 samples)",
+      "ratio": 4.534,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TopPill initials / BtnGradient",
+      "ratio": 6.736,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "White / StaffGradient (101 samples)",
+      "ratio": 4.629,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TopPill initials / StaffGradient",
+      "ratio": 6.835,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "White / BossGradient (101 samples)",
+      "ratio": 8.5,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "TopPill initials / BossGradient",
+      "ratio": 10.277,
+      "minimum": 4.5,
+      "pass": true
+    },
+    {
+      "pair": "Progress / track",
+      "ratio": 3.514,
+      "minimum": 3,
+      "pass": true
+    },
+    {
+      "pair": "Snackbar success icon / surface",
+      "ratio": 10.243,
+      "minimum": 3,
+      "pass": true
+    },
+    {
+      "pair": "Focus outline / screen",
+      "ratio": 13.318,
+      "minimum": 3,
+      "pass": true
+    }
+  ]
+}
