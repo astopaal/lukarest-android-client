@@ -1,401 +1,264 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
-import com.lukasoft.lukarest.ui.components.LukaFeedback
+import com.lukasoft.lukarest.ui.components.LukaBottomSheet
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.lukasoft.lukarest.data.api.ApiClient
-import com.lukasoft.lukarest.data.api.CreateOperationalNoteCommand
-import com.lukasoft.lukarest.data.api.OperationalNoteDto
+import com.lukasoft.lukarest.data.api.*
+import com.lukasoft.lukarest.data.store.AuthStore
 import com.lukasoft.lukarest.data.util.DateUtils
-import com.lukasoft.lukarest.ui.components.LukaCard
-import com.lukasoft.lukarest.ui.components.PrimaryButton
-import com.lukasoft.lukarest.ui.components.PullToRefreshBox
-import com.lukasoft.lukarest.ui.components.TopPill
+import com.lukasoft.lukarest.ui.components.*
 import com.lukasoft.lukarest.ui.theme.*
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.io.IOException
+import java.util.Locale
 
+private val noteCategories = linkedMapOf("Reservation" to "Rezervasyon", "DailyNotice" to "Duyuru", "HandoverNote" to "Devir teslim")
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OperationalNotesScreen(
-    onNavigateBack: () -> Unit
-) {
-    val me by com.lukasoft.lukarest.data.store.AuthStore.me.collectAsState()
-    val role by com.lukasoft.lukarest.data.store.AuthStore.role.collectAsState()
-    var editing by remember { mutableStateOf<OperationalNoteDto?>(null) }
+fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = null, service: OperationalNotesService = ApiClient.operationalNotesService) {
+    val me by AuthStore.me.collectAsState()
+    val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val todayIso = remember { DateUtils.getTurkeyTodayIso() }
-
-    var selectedTab by remember { mutableStateOf("Reservation") } // "Reservation", "DailyNotice", "HandoverNote"
+    val today = DateUtils.getTurkeyTodayIso()
+    var date by remember { mutableStateOf(today) }
+    var category by remember { mutableStateOf("DailyNotice") }
     var notes by remember { mutableStateOf<List<OperationalNoteDto>>(emptyList()) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var showAddDialog by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    var highlightedId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
+    var resolvingLink by remember(initialNoteId) { mutableStateOf(initialNoteId != null) }
+    var linkError by remember(initialNoteId) { mutableStateOf<String?>(null) }
+    var linkRetry by remember { mutableIntStateOf(0) }
+    var editing by remember { mutableStateOf<OperationalNoteDto?>(null) }
+    var editorOpen by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<OperationalNoteDto?>(null) }
+    var deleteBusy by remember { mutableStateOf(false) }
 
-    // Dialog state
-    var inputNoteContent by remember { mutableStateOf("") }
-    var inputGuestName by remember { mutableStateOf("") }
-    var inputGuestPhone by remember { mutableStateOf("") }
-    var inputGuestCount by remember { mutableStateOf("2") }
-    var inputTableNo by remember { mutableStateOf("") }
-    var isSaving by remember { mutableStateOf(false) }
-
-    fun refreshNotes() {
-        coroutineScope.launch {
-            isRefreshing = true
-            try {
-                val res = ApiClient.operationalNotesService.getNotes(date = todayIso, category = selectedTab)
-                if (res.isSuccessful && res.body() != null) {
-                    notes = res.body()!!
-                }
-            } catch (_: Exception) {
-            } finally {
-                delay(300)
-                isRefreshing = false
-            }
-        }
+    LaunchedEffect(initialNoteId, linkRetry) {
+        if (initialNoteId == null) return@LaunchedEffect
+        resolvingLink = true
+        linkError = null
+        try {
+            val response = service.getNote(initialNoteId)
+            val note = response.body()
+            if (response.isSuccessful && note != null) { date = note.targetDate; category = note.category }
+            else linkError = "Bildirimin bağlı olduğu not açılamadı. Silinmiş olabilir veya erişiminiz olmayabilir."
+        } catch (e: CancellationException) { throw e
+        } catch (_: IOException) { linkError = "Not açılamadı. Bağlantınızı kontrol edin."
+        } finally { resolvingLink = false }
     }
-
-    LaunchedEffect(selectedTab) {
-        refreshNotes()
+    LaunchedEffect(date, refreshKey, resolvingLink) {
+        if (resolvingLink) return@LaunchedEffect
+        loading = true
+        error = null
+        notes = emptyList()
+        try {
+            val response = service.getNotes(date = date)
+            if (response.isSuccessful) notes = response.body().orEmpty()
+            else error = "Kayıtlar yüklenemedi (${response.code()})."
+        } catch (e: CancellationException) { throw e
+        } catch (_: IOException) { error = "Sunucuya ulaşılamadı. Bağlantınızı kontrol edin."
+        } finally { loading = false }
     }
-
-    fun handleCreateNote() {
-        if (inputNoteContent.trim().length < 3) {
-            LukaFeedback.show("Not en az 3 karakter olmalıdır")
-            return
-        }
-        if (selectedTab == "Reservation") {
-            if (inputGuestName.isBlank() || inputGuestPhone.isBlank()) {
-                LukaFeedback.show("Rezervasyon için ad ve telefon zorunludur")
-                return
-            }
-        }
-
-        coroutineScope.launch {
-            isSaving = true
-            try {
-                val command = CreateOperationalNoteCommand(
-                    category = selectedTab,
-                    targetDate = editing?.targetDate ?: todayIso,
-                    guestName = if (selectedTab == "Reservation") inputGuestName.trim() else null,
-                    guestPhone = if (selectedTab == "Reservation") inputGuestPhone.trim() else null,
-                    guestCount = if (selectedTab == "Reservation") inputGuestCount.toIntOrNull() ?: 1 else null,
-                    tableNo = inputTableNo.ifBlank { null },
-                    noteContent = inputNoteContent.trim()
-                )
-                val service = ApiClient.operationalNotesService
-                val noteId = editing?.id
-                val res = if (noteId == null) service.createNote(command) else service.updateNote(noteId, command)
-                if (res.isSuccessful) {
-                    LukaFeedback.show("Kayıt başarıyla eklendi")
-                    showAddDialog = false
-                    inputNoteContent = ""
-                    inputGuestName = ""
-                    inputGuestPhone = ""
-                    inputTableNo = ""
-                    refreshNotes()
-                } else {
-                    LukaFeedback.show("Eklenemedi: ${res.code()}")
-                }
-            } catch (e: Exception) {
-                LukaFeedback.show("Hata: ${e.localizedMessage}")
-            } finally {
-                isSaving = false
-            }
-        }
+    val visible = notes.filter { it.category == category }.sortedWith(compareByDescending<OperationalNoteDto> { it.id == highlightedId }.thenByDescending { it.createdAtUtc })
+    val userId = me?.userId
+    val manager = me?.globalRole == "CompanyOwner" || me?.roleInBranch in listOf("Owner", "GeneralManager", "ShiftSupervisor")
+    fun chooseDate() {
+        val parts = date.split('-').map { it.toInt() }
+        DatePickerDialog(context, { _, year, month, day ->
+            date = String.format(Locale.ROOT, "%04d-%02d-%02d", year, month + 1, day)
+        }, parts[0], parts[1] - 1, parts[2]).show()
     }
-
-    fun handleDeleteNote(id: String) {
-        coroutineScope.launch {
-            try {
-                val res = ApiClient.operationalNotesService.deleteNote(id)
-                if (res.isSuccessful) {
-                    LukaFeedback.show("Kayıt silindi")
-                    refreshNotes()
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
     Scaffold(
-        topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 8.dp)
-            ) {
-                TopPill(
-                    title = "Operasyon Defteri",
-                    subtitle = "Rezervasyon & Günlük Notlar",
-                    initials = "OD",
-                    gradient = BossGradient,
-                    actionIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                    onActionClick = onNavigateBack
-                )
-            }
-        },
-        containerColor = BgScreenTop
-    ) { innerPadding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { refreshNotes() },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                // Kategori Sekmeleri
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        "Reservation" to "Rezervasyon",
-                        "DailyNotice" to "Duyurular",
-                        "HandoverNote" to "Vardiya Devir"
-                    ).forEach { (cat, label) ->
-                        val isSelected = selectedTab == cat
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp)
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(if (isSelected) BossGradStart else White)
-                                .clickable { selectedTab = cat },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) White else TextMain
-                            )
+        topBar = { Box(Modifier.padding(16.dp)) {
+            TopPill(title = "Operasyon defteri", subtitle = me?.activeBranchName ?: "Ekibin ortak notları", initials = "OD",
+                gradient = BossGradient, actionIcon = Icons.AutoMirrored.Filled.ArrowBack, onActionClick = onNavigateBack)
+        } }, containerColor = BgScreenTop
+    ) { padding ->
+        PullToRefreshBox(isRefreshing = loading || resolvingLink, onRefresh = { refreshKey++ }, modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { chooseDate() }, modifier = Modifier.weight(1f)) { Text(if (date == today) "Bugün · $date" else date) }
+                        if (date != today) TextButton(onClick = { date = today }) { Text("Bugüne dön") }
+                    }
+                }
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        noteCategories.forEach { (code, label) ->
+                            FilterChip(selected = category == code, onClick = { category = code },
+                                colors = FilterChipDefaults.filterChipColors(containerColor = White, labelColor = TextMain,
+                                    selectedContainerColor = PillBlue.bg, selectedLabelColor = PillBlue.fg), label = {
+                                Text("$label (${notes.count { it.category == code }})", color = if (category == code) PillBlue.fg else TextMain)
+                            })
                         }
                     }
                 }
-
-                // Yeni Ekle Butonu
-                PrimaryButton(
-                    text = when (selectedTab) {
-                        "Reservation" -> "+ Yeni Rezervasyon Ekle"
-                        "DailyNotice" -> "+ Yeni Duyuru Ekle"
-                        else -> "+ Devir Teslim Notu Ekle"
-                    },
-                    onClick = {
-                        editing = null
-                        inputNoteContent = ""
-                        inputGuestName = ""
-                        inputGuestPhone = ""
-                        inputGuestCount = "2"
-                        inputTableNo = ""
-                        showAddDialog = true
-                    },
-                    modifier = Modifier.fillMaxWidth().height(42.dp),
-                    gradient = BossGradient
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Liste
-                if (notes.isEmpty() && !isRefreshing) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 50.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Bugün için kayıt bulunamadı",
-                            color = TextMuted,
-                            fontSize = 14.sp
-                        )
+                item {
+                    PrimaryButton(text = "${noteCategories[category]} ekle", onClick = { editing = null; editorOpen = true }, modifier = Modifier.fillMaxWidth(), gradient = BossGradient)
+                }
+                linkError?.let { message -> item {
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { linkRetry++ }) { Text("Notu tekrar aç") }
+                } }
+                when {
+                    loading || resolvingLink -> item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                    error != null -> item {
+                        Text(error!!, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { refreshKey++ }) { Text("Tekrar dene") }
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(notes) { note ->
-                            LukaCard {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        if (!note.guestName.isNullOrBlank()) {
-                                            Text(
-                                                text = "${note.guestName} (${note.guestCount ?: 1} Kişi)",
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = TextMain
-                                            )
-                                            Text(
-                                                text = "${note.guestPhone ?: ""} ${if (!note.tableNo.isNullOrBlank()) "• Masa: ${note.tableNo}" else ""}",
-                                                fontSize = 12.sp,
-                                                color = StaffGradStart,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = note.noteContent,
-                                            fontSize = 13.sp,
-                                            color = TextSoft
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "Ekleyen: ${note.authorFullName}",
-                                            fontSize = 11.sp,
-                                            color = TextMuted
-                                        )
-                                    }
-
-                                    val canEdit = note.authorUserId == me?.userId ||
-                                        role == com.lukasoft.lukarest.data.store.AppRole.BOSS
-                                    if (canEdit) TextButton(onClick = {
-                                        editing = note
-                                        inputNoteContent = note.noteContent
-                                        inputGuestName = note.guestName.orEmpty()
-                                        inputGuestPhone = note.guestPhone.orEmpty()
-                                        inputGuestCount = note.guestCount?.toString().orEmpty()
-                                        inputTableNo = note.tableNo.orEmpty()
-                                        showAddDialog = true
-                                    }) { Text("Düzenle") }
-                                    if (canEdit) IconButton(
-                                        onClick = { handleDeleteNote(note.id) },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Sil",
-                                            tint = PillErr.fg,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
+                    visible.isEmpty() -> item { LukaCard {
+                        Text("Bu tarihte ${noteCategories[category]?.lowercase()} yok", style = MaterialTheme.typography.titleMedium, color = TextMain)
+                        Text("Yeni bir kayıt ekleyin. İlgili kişilere haber vermek için notta @ kullanabilirsiniz.", color = TextMuted)
+                    } }
+                    else -> items(visible, key = { it.id }) { note ->
+                        LukaCard {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                StatusPill(noteCategories[note.category].orEmpty(), pillColor = PillNeutral)
+                                if (userId in note.mentionedUserIds.orEmpty()) StatusPill("Senden bahsedildi", pillColor = PillBlue)
+                                if (note.id == highlightedId) StatusPill("Bildirimdeki not", pillColor = PillWarn)
+                            }
+                            if (note.category == "Reservation") {
+                                Spacer(Modifier.height(8.dp))
+                                Text("${note.guestName} · ${note.guestCount} kişi", style = MaterialTheme.typography.titleMedium, color = TextMain)
+                                Text(listOfNotNull(note.guestPhone, note.tableNo?.let { "Masa $it" }).joinToString(" · "), color = TextMuted)
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            NoteContent(note.noteContent)
+                            Spacer(Modifier.height(12.dp))
+                            Text(note.authorFullName, color = TextMain, style = MaterialTheme.typography.labelLarge)
+                            Text(DateUtils.formatUtcTimestamp(note.createdAtUtc), color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                            if (note.branchId == me?.activeBranchId && (note.authorUserId == userId || manager)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    TextButton(onClick = { editing = note; editorOpen = true }) { Text("Düzenle") }
+                                    IconButton(onClick = { deleting = note }) { Icon(Icons.Default.Delete, contentDescription = "Notu sil", tint = PillErr.fg) }
                                 }
                             }
                         }
-
-                        item { Spacer(modifier = Modifier.height(80.dp)) }
                     }
                 }
             }
         }
     }
-
-    if (showAddDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!isSaving) showAddDialog = false },
-            title = {
-                Text(
-                    text = when (selectedTab) {
-                        "Reservation" -> "Yeni Rezervasyon"
-                        "DailyNotice" -> "Yeni Günlük Duyuru"
-                        else -> "Vardiya Devir Notu"
-                    },
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())
-                ) {
-                    if (selectedTab == "Reservation") {
-                        OutlinedTextField(
-                            value = inputGuestName,
-                            onValueChange = { inputGuestName = it },
-                            label = { Text("Müşteri Adı") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        OutlinedTextField(
-                            value = inputGuestPhone,
-                            onValueChange = { inputGuestPhone = it },
-                            label = { Text("Telefon (+905...)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = inputGuestCount,
-                                onValueChange = { inputGuestCount = it },
-                                label = { Text("Kişi") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            OutlinedTextField(
-                                value = inputTableNo,
-                                onValueChange = { inputTableNo = it },
-                                label = { Text("Masa No") },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = inputNoteContent,
-                        onValueChange = { inputNoteContent = it },
-                        label = { Text("Not Açıklaması") },
-                        minLines = 3,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    )
+    if (editorOpen) NoteEditor(editing, category, date, service, onClose = { editorOpen = false }, onSaved = { editorOpen = false; refreshKey++ })
+    deleting?.let { note ->
+        AlertDialog(onDismissRequest = { if (!deleteBusy) deleting = null }, title = { Text("Bu not silinsin mi?") },
+            text = { Text("Not defterden kaldırılacak. Bu işlem geri alınamaz.") },
+            confirmButton = { TextButton(enabled = !deleteBusy, onClick = {
+                scope.launch {
+                    deleteBusy = true
+                    try {
+                        val response = service.deleteNote(note.id)
+                        if (response.isSuccessful) { deleting = null; refreshKey++; LukaFeedback.show("Not silindi") }
+                        else LukaFeedback.show("Not silinemedi (${response.code()}).")
+                    } catch (e: CancellationException) { throw e
+                    } catch (_: IOException) { LukaFeedback.show("Sunucuya ulaşılamadı.")
+                    } finally { deleteBusy = false }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { handleCreateNote() },
-                    colors = ButtonDefaults.buttonColors(containerColor = BossGradStart),
-                    enabled = !isSaving
-                ) {
-                    Text(text = if (isSaving) "Kaydediliyor..." else "Kaydet")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showAddDialog = false },
-                    enabled = !isSaving
-                ) {
-                    Text("İptal")
-                }
-            }
-        )
+            }) { Text(if (deleteBusy) "Siliniyor…" else "Notu sil", color = PillErr.fg) } },
+            dismissButton = { TextButton(enabled = !deleteBusy, onClick = { deleting = null }) { Text("Vazgeç") } })
     }
 }
 
-
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NoteEditor(note: OperationalNoteDto?, category: String, date: String, service: OperationalNotesService, onClose: () -> Unit, onSaved: () -> Unit) {
+    var content by remember { mutableStateOf(TextFieldValue(note?.noteContent.orEmpty(), TextRange(note?.noteContent?.length ?: 0))) }
+    var guest by remember { mutableStateOf(note?.guestName.orEmpty()) }
+    var phone by remember { mutableStateOf(note?.guestPhone.orEmpty()) }
+    var count by remember { mutableStateOf(note?.guestCount?.toString() ?: "2") }
+    var table by remember { mutableStateOf(note?.tableNo.orEmpty()) }
+    var people by remember { mutableStateOf<List<NoteMentionableUserDto>>(emptyList()) }
+    var peopleLoading by remember { mutableStateOf(true) }
+    var peopleError by remember { mutableStateOf<String?>(null) }
+    var peopleRetry by remember { mutableIntStateOf(0) }
+    var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    var discard by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val changed = content.text != note?.noteContent.orEmpty() || guest != note?.guestName.orEmpty() || phone != note?.guestPhone.orEmpty() ||
+        table != note?.tableNo.orEmpty() || count != (note?.guestCount?.toString() ?: "2")
+    fun dismiss() { if (!saving) { if (changed) discard = true else onClose() } }
+    LaunchedEffect(peopleRetry) {
+        peopleLoading = true
+        peopleError = null
+        try {
+            val response = service.getMentionableUsers()
+            if (response.isSuccessful) people = response.body().orEmpty() else peopleError = "Kişiler yüklenemedi."
+        } catch (e: CancellationException) { throw e
+        } catch (_: IOException) { peopleError = "Kişiler yüklenemedi. Bağlantınızı kontrol edin."
+        } finally { peopleLoading = false }
+    }
+    LukaBottomSheet(onDismissRequest = { dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
+        confirmValueChange = { value ->
+            if (saving) false else if (value == SheetValue.Hidden && changed) { discard = true; false } else true
+        }), containerColor = BgScreenTop) {
+        Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.82f).dp).imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (note == null) "${noteCategories[category]} ekle" else "Notu düzenle", style = MaterialTheme.typography.titleLarge, color = TextMain)
+            Text("$date · @ ile ekipten birine haber verin", color = TextMuted, style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (category == "Reservation") {
+                    OutlinedTextField(guest, { guest = it }, label = { Text("Misafir adı") }, enabled = !saving, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(phone, { phone = it }, label = { Text("Telefon (+905…) ") }, enabled = !saving, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(count, { count = it }, label = { Text("Kişi sayısı") }, enabled = !saving, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
+                        OutlinedTextField(table, { table = it }, label = { Text("Masa") }, enabled = !saving, singleLine = true, modifier = Modifier.weight(1f))
+                    }
+                }
+                NoteMentionField(content, { content = it }, people, peopleLoading, peopleError, { peopleRetry++ }, enabled = !saving)
+                saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { dismiss() }, enabled = !saving, modifier = Modifier.weight(1f)) { Text("Vazgeç") }
+                Button(onClick = {
+                    scope.launch {
+                        saving = true
+                        saveError = null
+                        try {
+                            val command = CreateOperationalNoteCommand(category, note?.targetDate ?: date,
+                                guestName = guest.trim().takeIf { category == "Reservation" }, guestPhone = phone.trim().takeIf { category == "Reservation" },
+                                guestCount = count.toIntOrNull().takeIf { category == "Reservation" }, tableNo = table.trim().ifBlank { null },
+                                noteContent = content.text.trim(), mentionedUserIds = noteMentionIds(content.text, people))
+                            val response = if (note == null) service.createNote(command) else service.updateNote(note.id, command)
+                            if (response.isSuccessful) { LukaFeedback.show(if (note == null) "Not eklendi" else "Not güncellendi"); onSaved() }
+                            else saveError = apiErrorMessage(response.errorBody()?.string(), "Not kaydedilemedi. Alanları kontrol edin (${response.code()}).")
+                        } catch (e: CancellationException) { throw e
+                        } catch (_: IOException) { saveError = "Sunucuya ulaşılamadı. Yazdıklarınız korunuyor."
+                        } finally { saving = false }
+                    }
+                }, enabled = !saving && !peopleLoading && peopleError == null && content.text.trim().length in 3..2000 &&
+                    (category != "Reservation" || (guest.isNotBlank() && phone.isNotBlank() && (count.toIntOrNull() ?: 0) >= 1)), modifier = Modifier.weight(1f)) {
+                    Text(if (saving) "Kaydediliyor…" else "Kaydet", color = LocalContentColor.current)
+                }
+            }
+            if (peopleError != null) TextButton(onClick = { peopleRetry++ }, enabled = !saving) { Text("Kaydetmek için kişi listesini tekrar yükle") }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text("Değişikliklerden vazgeçilsin mi?") },
+        text = { Text("Kaydedilmemiş değişiklikler silinecek.") },
+        confirmButton = { TextButton(onClick = onClose) { Text("Değişiklikleri sil") } },
+        dismissButton = { TextButton(onClick = { discard = false }) { Text("Yazmaya devam et") } })
+}
