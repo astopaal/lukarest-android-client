@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.model.TaskItem
 import com.lukasoft.lukarest.ui.components.LukaCard
+import com.lukasoft.lukarest.ui.components.LukaTimeField
 import com.lukasoft.lukarest.ui.components.PrimaryButton
 import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.components.TopPill
@@ -139,19 +140,18 @@ fun BossTaskDetailScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedTextField(
+                        LukaTimeField(
                             value = startTime,
                             onValueChange = { startTime = it },
-                            label = { Text("Başlangıç Saati") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                            label = "Başlangıç",
+                            modifier = Modifier.weight(1f)
                         )
-                        OutlinedTextField(
+                        LukaTimeField(
                             value = endTime,
                             onValueChange = { endTime = it },
-                            label = { Text("Bitiş Saati") },
+                            label = "Bitiş",
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                            allowClear = true
                         )
                     }
                 }

@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,17 +15,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
 import com.lukasoft.lukarest.data.api.toTaskItem
 import com.lukasoft.lukarest.data.model.TaskItem
 import com.lukasoft.lukarest.data.model.TaskStatus
-import com.lukasoft.lukarest.ui.components.LukaCard
 import com.lukasoft.lukarest.ui.components.PullToRefreshBox
-import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.components.TopPill
+import com.lukasoft.lukarest.ui.components.LukaChoiceGroup
+import com.lukasoft.lukarest.ui.components.LukaLoadingState
+import com.lukasoft.lukarest.ui.components.LukaErrorState
+import com.lukasoft.lukarest.ui.components.LukaEmptyState
 import com.lukasoft.lukarest.ui.theme.*
 import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 import kotlinx.coroutines.delay
@@ -43,25 +41,30 @@ fun StaffTasksScreen(
     var selectedFilter by remember { mutableStateOf("all") } // "all", "pending", "done"
 
     val filteredTasks = when (selectedFilter) {
-        "pending" -> tasks.filter { it.status == TaskStatus.PENDING }
+        "pending" -> tasks.filter { it.status != TaskStatus.DONE }
         "done" -> tasks.filter { it.status == TaskStatus.DONE }
         else -> tasks
     }
 
     val coroutineScope = rememberCoroutineScope()
-    var isRefreshing by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
 
     fun refreshStaffTasks() {
         coroutineScope.launch {
             isRefreshing = true
+            loadError = null
             try {
                 val res = ApiClient.tasksService.getMyTasks()
                 if (res.isSuccessful && res.body() != null) {
                     viewModel.setTasks(res.body()!!.tasks.map { it.toTaskItem("me") })
                 } else {
-                    LukaFeedback.show("Görevler alınamadı (${res.code()})")
+                    loadError = "Görevler alınamadı (${res.code()})."
                 }
-            } catch (_: Exception) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: java.io.IOException) {
+                loadError = "Görevler yüklenemedi. Bağlantını kontrol edip tekrar dene."
             } finally {
                 delay(400)
                 isRefreshing = false
@@ -98,38 +101,15 @@ fun StaffTasksScreen(
                     .padding(horizontal = 16.dp)
             ) {
             // Filtre Barı
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color(0xFFE2ECF8))
-                    .padding(3.dp)
-            ) {
-                listOf(
+            LukaChoiceGroup(
+                value = selectedFilter,
+                options = listOf(
                     "all" to "Tümü",
                     "pending" to "Bekleyen",
                     "done" to "Tamamlanan"
-                ).forEach { (key, label) ->
-                    val selected = selectedFilter == key
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (selected) StaffGradStart else Color.Transparent)
-                            .clickable { selectedFilter = key },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = label,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selected) White else TextSoft
-                        )
-                    }
-                }
-            }
+                ),
+                onSelect = { selectedFilter = it }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -138,6 +118,15 @@ fun StaffTasksScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (isRefreshing && tasks.isEmpty()) item { LukaLoadingState("Görevler yükleniyor.") }
+                loadError?.let { message -> item { LukaErrorState(message, onRetry = { refreshStaffTasks() }) } }
+                if (!isRefreshing && loadError == null && filteredTasks.isEmpty()) item {
+                    LukaEmptyState(
+                        "Bu görünümde görev yok.",
+                        if (tasks.isEmpty()) "Görev atandığında burada görünecek. Listeyi aşağı çekerek yenileyebilirsin."
+                        else "Diğer görevleri görmek için filtreyi değiştir."
+                    )
+                }
                 items(filteredTasks) { task ->
                     TaskCardItem(
                         task = task,
@@ -159,70 +148,7 @@ fun TaskCardItem(
     onToggle: () -> Unit,
     onCompleteWithMedia: () -> Unit
 ) {
-    val isDone = task.status == TaskStatus.DONE
-
-    LukaCard {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Checkbox
-            Box(
-                modifier = Modifier
-                    .size(26.dp)
-                    .clip(CircleShape)
-                    .background(if (isDone) StaffGradStart else Color.Transparent)
-                    .clickable(enabled = !isDone) { onToggle() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (isDone) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Done",
-                        tint = White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape)
-                            .background(Color.LightGray.copy(alpha = 0.35f))
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isDone) TextMuted else TextMain,
-                    textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
-                )
-                task.description?.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(3.dp))
-                    Text(it, fontSize = 12.sp, color = TextSoft, maxLines = 2)
-                }
-                Text(
-                    text = "${task.startTime}${if (task.endTime != null) " — ${task.endTime}" else ""}",
-                    fontSize = 12.sp,
-                    color = TextMuted
-                )
-            }
-
-            if (task.mediaRequired) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(modifier = Modifier.clickable { onCompleteWithMedia() }) {
-                    StatusPill(
-                        text = if (task.hasMedia) "Kanıt yüklendi" else "Kanıt ekle",
-                        pillColor = if (task.hasMedia) PillOk else PillBlue
-                    )
-                }
-            }
-        }
-    }
+    com.lukasoft.lukarest.ui.components.TaskListCard(task, onOpen = onToggle,
+        onAddProof = onCompleteWithMedia, showReminder = true)
 }
 

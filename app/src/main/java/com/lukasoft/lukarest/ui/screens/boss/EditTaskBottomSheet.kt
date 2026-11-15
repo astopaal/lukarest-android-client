@@ -1,5 +1,7 @@
 package com.lukasoft.lukarest.ui.screens.boss
 
+import com.lukasoft.lukarest.ui.components.LukaBottomSheet
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.model.TaskItem
 import com.lukasoft.lukarest.ui.components.LukaCard
+import com.lukasoft.lukarest.ui.components.LukaTimeField
 import com.lukasoft.lukarest.ui.components.PrimaryButton
 import com.lukasoft.lukarest.ui.components.StatusPill
 import com.lukasoft.lukarest.ui.theme.*
@@ -36,7 +39,7 @@ fun EditTaskBottomSheet(
     var startTime by remember(task) { mutableStateOf(task.startTime) }
     var endTime by remember(task) { mutableStateOf(task.endTime ?: "") }
 
-    ModalBottomSheet(
+    LukaBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = White,
@@ -113,24 +116,19 @@ fun EditTaskBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(
+                LukaTimeField(
                     value = startTime,
                     onValueChange = { startTime = it },
-                    label = { Text("Başlangıç") },
-                    placeholder = { Text("09:00") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    label = "Başlangıç",
+                    modifier = Modifier.weight(1f)
                 )
 
-                OutlinedTextField(
+                LukaTimeField(
                     value = endTime,
                     onValueChange = { endTime = it },
-                    label = { Text("Bitiş") },
-                    placeholder = { Text("17:00") },
-                    singleLine = true,
+                    label = "Bitiş",
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    allowClear = true
                 )
             }
 

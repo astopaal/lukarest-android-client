@@ -11,14 +11,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
+import com.google.gson.JsonParser
+import com.lukasoft.lukarest.data.api.toTaskItem
 import com.lukasoft.lukarest.data.api.CompleteTaskBody
 import com.lukasoft.lukarest.data.model.TaskStatus
 import com.lukasoft.lukarest.ui.components.LukaCard
@@ -53,13 +58,26 @@ fun StaffTaskCompleteScreen(
     val scope = rememberCoroutineScope()
     val tasks by viewModel.tasks.collectAsState()
     val task = tasks.find { it.id == taskId }
+    val canSubmit = task != null && task.status !in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL)
     var note by remember { mutableStateOf("") }
-    var selectedUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedMediaKind by remember { mutableStateOf<String?>(null) }
+    var selectedUriText by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedUri = selectedUriText?.let(Uri::parse)
+    var selectedMediaKind by rememberSaveable { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
+    var refreshRequired by remember { mutableStateOf(false) }
+
+    suspend fun refreshTasks(): Boolean {
+        val response = ApiClient.tasksService.getMyTasks()
+        val latest = response.body()
+        if (!response.isSuccessful || latest == null) return false
+        viewModel.setTasks(latest.tasks.map { it.toTaskItem("me") })
+        return true
+    }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    var cameraUriText by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraUri = cameraUriText?.let(Uri::parse)
     var askCameraPermission by remember { mutableStateOf(false) }
+    var captureVideo by rememberSaveable { mutableStateOf(false) }
 
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) askCameraPermission = true
@@ -68,8 +86,15 @@ fun StaffTaskCompleteScreen(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
         val uri = cameraUri
         if (captured && uri != null) {
-            selectedUri = uri
+            selectedUriText = uri.toString()
             selectedMediaKind = "photo"
+            errorMessage = null
+        }
+    }
+    val videoCamera = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { captured ->
+        if (captured && cameraUri != null) {
+            selectedUriText = cameraUri.toString()
+            selectedMediaKind = "video"
             errorMessage = null
         }
     }
@@ -77,20 +102,14 @@ fun StaffTaskCompleteScreen(
         if (askCameraPermission) {
             askCameraPermission = false
             val file = java.io.File(context.cacheDir, "task-proofs").apply { mkdirs() }
-            val photo = java.io.File.createTempFile("proof_", ".jpg", file)
+            val photo = java.io.File.createTempFile("proof_", if (captureVideo) ".mp4" else ".jpg", file)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photo)
-            cameraUri = uri
-            camera.launch(uri)
-        }
-    }
-
-    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        selectedUri = uri
-        selectedMediaKind = uri?.let { context.contentResolver.getType(it)?.substringBefore('/') }
-        errorMessage = when (selectedMediaKind) {
-            "image", "video" -> null
-            null -> null
-            else -> "Yalnız fotoğraf veya video seçebilirsiniz."
+            cameraUriText = uri.toString()
+            try {
+                if (captureVideo) videoCamera.launch(uri) else camera.launch(uri)
+            } catch (_: android.content.ActivityNotFoundException) {
+                errorMessage = "Bu cihazda kamera uygulaması bulunamadı."
+            }
         }
     }
 
@@ -100,16 +119,16 @@ fun StaffTaskCompleteScreen(
             errorMessage = "Görev bilgisi bulunamadı. Görev listesini yenileyip tekrar deneyin."
             return
         }
-        if (isSubmitting) return
+        if (isSubmitting || refreshRequired || currentTask.status in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL)) return
         scope.launch {
             isSubmitting = true
             errorMessage = null
             try {
                 var proofIds = emptyList<String>()
-                if (currentTask.mediaRequired) {
+                if (currentTask.mediaRequired || currentTask.requiresApproval) {
                     val uri = selectedUri
                     if (uri == null) {
-                        errorMessage = "Bu görevi tamamlamak için kanıt dosyası seçin."
+                        errorMessage = "Bu görevi tamamlamak için kameradan kanıt çekin."
                         return@launch
                     }
                     val media = readProofFile(context, uri, currentTask.allowedProofType)
@@ -132,21 +151,42 @@ fun StaffTaskCompleteScreen(
                     CompleteTaskBody(completionNote = note.trim().ifBlank { null }, mediaProofIds = proofIds)
                 )
                 if (!complete.isSuccessful) {
-                    errorMessage = "Görev tamamlanamadı (${complete.code()}): ${complete.errorBody()?.string()?.take(220).orEmpty()}"
+                    val errorTitle = runCatching {
+                        JsonParser.parseString(complete.errorBody()?.string().orEmpty())
+                            .asJsonObject.get("title")?.asString
+                    }.getOrNull()
+                    if (complete.code() == 400 && errorTitle == "task_already_completed") {
+                        refreshRequired = true
+                        if (refreshTasks()) {
+                            LukaFeedback.show("Bu görev zaten tamamlandı")
+                            onNavigateBack()
+                        } else {
+                            errorMessage = "Bu görev zaten tamamlandı. Güncel durum için görev listesini yenileyin."
+                        }
+                    } else {
+                        errorMessage = "Tamamlama kaydedilemedi. Görev listesini yenileyip tekrar deneyin."
+                    }
                     return@launch
                 }
-                val completedTask = complete.body()
-                viewModel.updateTask(currentTask.copy(
-                    status = TaskStatus.DONE,
-                    description = completedTask?.description ?: currentTask.description,
-                    completionNote = completedTask?.completionNote ?: note.trim().ifBlank { null },
-                    hasMedia = completedTask?.hasMedia ?: (currentTask.mediaRequired || currentTask.hasMedia),
-                    proofMedia = completedTask?.media ?: currentTask.proofMedia
-                ))
-                LukaFeedback.show("Görev tamamlandı")
+                val result = complete.body()?.toTaskItem(currentTask.assignedTo, currentTask.shiftId)
+                if (result == null) {
+                    refreshRequired = true
+                    errorMessage = "Görevin güncel durumunu görmek için listeyi yenileyin."
+                    return@launch
+                }
+                viewModel.updateTask(result)
+                LukaFeedback.show(when {
+                    result.status == TaskStatus.AWAITING_APPROVAL -> "Kanıt yönetici onayına gönderildi"
+                    !result.isShared -> "Görev tamamlandı"
+                    result.status == TaskStatus.DONE -> "Ortak görev tamamlandı"
+                    else -> "Katkı kaydedildi"
+                })
                 onNavigateBack()
-            } catch (e: Exception) {
-                errorMessage = "İşlem başarısız: ${e.localizedMessage}"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                refreshRequired = true
+                errorMessage = "Sonuç doğrulanamadı. Tekrar göndermeden önce görev listesini yenileyin."
             } finally {
                 isSubmitting = false
             }
@@ -159,7 +199,7 @@ fun StaffTaskCompleteScreen(
                 TopPill(
                     title = "Görevi Tamamla",
                     subtitle = task?.title ?: "Görev Detay",
-                    initials = "AY",
+                    initials = com.lukasoft.lukarest.data.store.AuthStore.staffName.value?.take(2)?.uppercase() ?: "P",
                     gradient = StaffGradient,
                     actionIcon = Icons.AutoMirrored.Filled.ArrowBack,
                     onActionClick = onNavigateBack
@@ -169,11 +209,15 @@ fun StaffTaskCompleteScreen(
         containerColor = BgScreenTop
     ) { innerPadding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             LukaCard {
                 Text(task?.title ?: "", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextMain)
+                if (task?.status == TaskStatus.AWAITING_APPROVAL) Text("Kanıt yönetici onayında. Yeniden gönderilemez.", color = PillWarn.fg)
+                if (task?.isShared == true) {
+                    Text("Ortak görev · %d / %d tamamlandı".format(task.completedCount, task.requiredCount), color = StaffGradStart)
+                }
                 task?.description?.takeIf { it.isNotBlank() }?.let {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(it, fontSize = 14.sp, color = TextSoft)
@@ -186,7 +230,8 @@ fun StaffTaskCompleteScreen(
                 )
             }
 
-            if (task?.mediaRequired == true) {
+            task?.reviewNote?.let { Text("Yönetici notu: $it", color = MaterialTheme.colorScheme.error) }
+            if (task != null && (task.mediaRequired || task.requiresApproval)) {
                 LukaCard {
                     Text(
                         "Zorunlu kanıt: ${when (task.allowedProofType) { "PhotoOnly" -> "fotoğraf"; "VideoOnly" -> "video"; else -> "fotoğraf veya video" }}",
@@ -196,32 +241,32 @@ fun StaffTaskCompleteScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     val canTakePhoto = task.allowedProofType == "PhotoOnly" || task.allowedProofType == "PhotoOrVideo"
-                    val pickerMimeType = when (task.allowedProofType) {
-                        "PhotoOnly" -> "image/*"
-                        "VideoOnly" -> "video/*"
-                        else -> "*/*"
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         if (canTakePhoto) OutlinedButton(onClick = {
+                            captureVideo = false
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                                 askCameraPermission = true
                             } else cameraPermission.launch(Manifest.permission.CAMERA)
-                        }, modifier = Modifier.weight(1f)) {
+                        }, enabled = canSubmit && !isSubmitting, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.CameraAlt, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Kamerayı aç")
                         }
-                        OutlinedButton(onClick = { mediaPicker.launch(pickerMimeType) }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = null)
+                        if (task.allowedProofType in listOf("VideoOnly", "PhotoOrVideo")) OutlinedButton(onClick = {
+                            captureVideo = true
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) askCameraPermission = true
+                            else cameraPermission.launch(Manifest.permission.CAMERA)
+                        }, enabled = canSubmit && !isSubmitting, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Videocam, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
-                            Text(if (task.allowedProofType == "VideoOnly") "Video seç" else if (task.allowedProofType == "PhotoOnly") "Fotoğraf seç" else "Medya seç")
+                            Text("Video çek")
                         }
                     }
                     selectedUri?.let {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Seçilen ${if (selectedMediaKind == "video") "video" else "fotoğraf"}: ${displayName(context, it)}", color = StaffGradStart, fontSize = 12.sp)
                     }
-                    Text("JPG, PNG, WEBP veya MP4/MOV · en fazla 20 MB", color = TextMuted, fontSize = 11.sp)
+                    Text("Yalnız bu ekranda çekilen kamera kanıtı · en fazla 20 MB", color = TextMuted, fontSize = 11.sp)
                 }
             }
 
@@ -237,12 +282,33 @@ fun StaffTaskCompleteScreen(
                 )
             }
 
-            errorMessage?.let { Text(it, color = Color(0xFFDC2626), fontSize = 13.sp) }
-            Spacer(modifier = Modifier.weight(1f))
+            errorMessage?.let { Text(it, color = PillErr.fg, fontSize = 13.sp) }
+            if (refreshRequired) {
+                TextButton(
+                    enabled = !isSubmitting,
+                    onClick = {
+                        scope.launch {
+                            isSubmitting = true
+                            try {
+                                if (refreshTasks()) {
+                                    onNavigateBack()
+                                } else {
+                                    errorMessage = "Görevler yenilenemedi. Tekrar deneyin."
+                                }
+                            } catch (_: java.io.IOException) {
+                                errorMessage = "Görevler yenilenemedi. Tekrar deneyin."
+                            } finally {
+                                isSubmitting = false
+                            }
+                        }
+                    }
+                ) { Text("Görev listesini yenile") }
+            }
             PrimaryButton(
-                text = if (isSubmitting) "Gönderiliyor..." else "Görevi Tamamla",
+                text = if (isSubmitting) "Gönderiliyor..." else if (task?.isShared == true) "Bir tamamlama kaydet" else "Görevi Tamamla",
                 onClick = { submitCompletion() },
-                enabled = !isSubmitting,
+                loading = isSubmitting,
+                enabled = !isSubmitting && !refreshRequired && task != null && task.status !in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL),
                 gradient = StaffGradient
             )
         }
