@@ -6,6 +6,14 @@ import java.util.Date
 import java.util.Locale
 
 object DateUtils {
+    fun formatUtcTimestamp(value: String): String = runCatching {
+        val utc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).apply { timeZone = java.util.TimeZone.getTimeZone("UTC"); isLenient = false }
+        val instant = utc.parse(value.take(19)) ?: return value
+        SimpleDateFormat("dd MMM yyyy HH:mm", Locale.forLanguageTag("tr-TR")).apply {
+            timeZone = java.util.TimeZone.getTimeZone("Europe/Istanbul")
+        }.format(instant)
+    }.getOrDefault(value)
+
     fun weekLabel(weekStart: String): String {
         val format = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
             timeZone = java.util.TimeZone.getTimeZone("UTC")

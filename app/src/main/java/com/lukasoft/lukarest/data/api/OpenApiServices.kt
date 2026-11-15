@@ -20,7 +20,8 @@ data class QrSessionStatusResponse(
     val isClaimed: Boolean,
     val assignedBranchId: String?,
     val branchName: String?,
-    val canExchange: Boolean
+    val canExchange: Boolean,
+    val expiresAtUtc: String? = null
 )
 
 data class ClaimStaffQrSessionCommand(
@@ -39,6 +40,9 @@ data class ExchangeStaffQrSessionCommand(
 )
 
 interface StaffOnboardingService {
+    @POST("/api/v1/staff-onboarding/qr-session/{sessionId}/renew")
+    suspend fun renewQrSession(@Path("sessionId") sessionId: String): Response<QrSessionResponse>
+
     @POST("/api/v1/staff-onboarding/qr-session")
     suspend fun createQrSession(): Response<QrSessionResponse>
 
@@ -76,6 +80,7 @@ data class CreateShiftTemplateCommand(
 )
 
 data class ShiftMatrixCellDto(
+    @SerializedName("coverage") val coverage: CoverageImpactDto? = null,
     @SerializedName("shiftInstanceId") val shiftInstanceId: String? = null,
     @SerializedName("userId") val userId: String,
     @SerializedName("userName") val userName: String? = null,
@@ -213,6 +218,8 @@ interface ShiftsService {
 // ══════════════════════════════════════════════════════════════════
 
 data class TaskDefinitionDto(
+    @SerializedName("priority") val priority: String = "Medium",
+    @SerializedName("requiresApproval") val requiresApproval: Boolean = false,
     @SerializedName("id") val id: String,
     @SerializedName("title") val title: String,
     @SerializedName("description") val description: String?,
@@ -222,10 +229,16 @@ data class TaskDefinitionDto(
     @SerializedName("targetEndTime") val targetEndTime: String?,
     @SerializedName("requiresMediaProof") val requiresMediaProof: Boolean,
     @SerializedName("recurrenceType") val recurrenceType: String,
-    @SerializedName("allowedProofType") val allowedProofType: String
+    @SerializedName("allowedProofType") val allowedProofType: String,
+    @SerializedName("audience") val audience: String? = null,
+    @SerializedName("completionRule") val completionRule: String? = null,
+    @SerializedName("requiredCount") val requiredCount: Int? = null,
+    @SerializedName("assigneeUserIds") val assigneeUserIds: List<String>? = null
 )
 
 data class CreateTaskDefinitionCommand(
+    @SerializedName("priority") val priority: String = "Medium",
+    @SerializedName("requiresApproval") val requiresApproval: Boolean = false,
     @SerializedName("title") val title: String,
     @SerializedName("description") val description: String?,
     @SerializedName("targetShiftTemplateId") val targetShiftTemplateId: String?,
@@ -234,10 +247,19 @@ data class CreateTaskDefinitionCommand(
     @SerializedName("targetEndTime") val targetEndTime: String?,
     @SerializedName("recurrenceType") val recurrenceType: String = "OneShot",
     @SerializedName("requiresMediaProof") val requiresMediaProof: Boolean = false,
-    @SerializedName("allowedProofType") val allowedProofType: String = "None"
+    @SerializedName("allowedProofType") val allowedProofType: String = "None",
+    @SerializedName("audience") val audience: String? = null,
+    @SerializedName("completionRule") val completionRule: String? = null,
+    @SerializedName("requiredCount") val requiredCount: Int? = null,
+    @SerializedName("assigneeUserIds") val assigneeUserIds: List<String>? = null
 )
 
 data class TaskExecutionDto(
+    @SerializedName("priority") val priority: String? = "Medium",
+    @SerializedName("requiresApproval") val requiresApproval: Boolean = false,
+    @SerializedName("submittedAtUtc") val submittedAtUtc: String? = null,
+    @SerializedName("reviewedAtUtc") val reviewedAtUtc: String? = null,
+    @SerializedName("reviewNote") val reviewNote: String? = null,
     @SerializedName("id") val id: String,
     @SerializedName("title") val title: String,
     @SerializedName("description") val description: String? = null,
@@ -248,7 +270,10 @@ data class TaskExecutionDto(
     @SerializedName("allowedProofType") val allowedProofType: String = "None",
     @SerializedName("hasMedia") val hasMedia: Boolean = false,
     @SerializedName("completionNote") val completionNote: String? = null,
-    @SerializedName("media") val media: List<TaskMediaDto> = emptyList()
+    @SerializedName("media") val media: List<TaskMediaDto>? = emptyList(),
+    @SerializedName("completionRule") val completionRule: String? = null,
+    @SerializedName("requiredCount") val requiredCount: Int? = null,
+    @SerializedName("completedCount") val completedCount: Int? = null
 )
 
 data class TaskMediaDto(
@@ -286,11 +311,20 @@ data class CompleteTaskBody(
 )
 
 interface TasksService {
+    @POST("/api/v1/tasks/executions/{id}/review")
+    suspend fun reviewTask(@Path("id") id: String, @Body body: ReviewTaskBody): Response<TaskExecutionDto>
+
+    @POST("/api/v1/tasks/executions/{id}/reminder")
+    suspend fun setReminder(@Path("id") id: String): Response<Unit>
+
     @GET("/api/v1/tasks/definitions")
     suspend fun getDefinitions(
         @Query("shiftTemplateId") shiftTemplateId: String? = null,
         @Query("recurrenceType") recurrenceType: String? = null
     ): Response<List<TaskDefinitionDto>>
+
+    @GET("/api/v1/tasks/definitions/{id}")
+    suspend fun getDefinition(@Path("id") id: String): Response<TaskDefinitionDto>
 
     @POST("/api/v1/tasks/definitions")
     suspend fun createDefinition(@Body body: CreateTaskDefinitionCommand): Response<TaskDefinitionDto>
@@ -346,7 +380,8 @@ data class OperationalIssueDetailsDto(
 
 data class CoverageImpactDto(
     @SerializedName("message") val message: String,
-    @SerializedName("staffNames") val staffNames: List<String> = emptyList()
+    @SerializedName("staffNames") val staffNames: List<String> = emptyList(),
+    @SerializedName("hasGap") val hasGap: Boolean = false
 )
 
 data class CreateStaffRequestCommand(
@@ -354,7 +389,8 @@ data class CreateStaffRequestCommand(
     @SerializedName("reason") val reason: String,
     @SerializedName("shiftChange") val shiftChange: ShiftChangeRequestDetailsDto? = null,
     @SerializedName("leave") val leave: LeaveRequestDetailsDto? = null,
-    @SerializedName("issue") val issue: OperationalIssueDetailsDto? = null
+    @SerializedName("issue") val issue: OperationalIssueDetailsDto? = null,
+    @SerializedName("priority") val priority: String = "Medium"
 )
 
 private val requestTypes = listOf(
@@ -364,6 +400,7 @@ private val requestTypes = listOf(
 private val requestStatuses = listOf("Pending", "Approved", "Rejected", "Cancelled")
 
 data class StaffRequestListItemDto(
+    @SerializedName("priority") val priority: String = "Medium",
     @SerializedName("id") val id: String,
     @SerializedName("staffUserId") val staffUserId: String,
     @SerializedName("staffFullName") val staffFullName: String,
@@ -381,6 +418,7 @@ data class StaffRequestListItemDto(
 }
 
 data class StaffRequestDetailDto(
+    @SerializedName("priority") val priority: String = "Medium",
     @SerializedName("id") val id: String,
     @SerializedName("staffUserId") val staffUserId: String,
     @SerializedName("staffFullName") val staffFullName: String,

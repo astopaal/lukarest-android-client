@@ -3,7 +3,9 @@ package com.lukasoft.lukarest.data.model
 enum class TaskStatus {
     PENDING,
     DONE,
-    LATE
+    LATE,
+    AWAITING_APPROVAL,
+    REJECTED
 }
 
 enum class TaskRepeat {
@@ -20,6 +22,11 @@ data class MediaItem(
 )
 
 data class TaskItem(
+    val priority: String = "Medium",
+    val requiresApproval: Boolean = false,
+    val submittedAtUtc: String? = null,
+    val reviewedAtUtc: String? = null,
+    val reviewNote: String? = null,
     val id: String,
     val title: String,
     val description: String? = null,
@@ -37,6 +44,11 @@ data class TaskItem(
     val mediaProof: List<MediaItem> = emptyList(),
     val completedAt: String? = null,
     val completedBy: String? = null,
-    val group: String = "a" // "a" veya "b"
-)
+    val group: String = "a", // "a" veya "b"
+    val completionRule: String = "Each",
+    val requiredCount: Int = 1,
+    val completedCount: Int = 0
+) {
+    val isShared: Boolean get() = completionRule == "Quota"
+}
 

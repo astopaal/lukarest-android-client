@@ -22,6 +22,9 @@ object ApiClient {
     private var tokenUpdateHandler: ((AuthTokensResponse) -> Unit)? = null
     private var refreshRejectedHandler: (() -> Unit)? = null
     private val refreshLock = Any()
+    private var validationErrorHandler: ((String) -> Unit)? = null
+
+    fun setValidationErrorHandler(handler: (String) -> Unit) { validationErrorHandler = handler }
 
     fun setAccessTokenProvider(provider: () -> String?) {
         accessTokenProvider = provider
@@ -59,6 +62,7 @@ object ApiClient {
         override fun authenticate(route: Route?, response: OkHttpResponse): Request? {
             if (responseCount(response) >= 2) return null
             if (response.request.url.encodedPath.startsWith("/api/v1/auth/")) return null
+            if (response.request.url.encodedPath.startsWith("/api/v1/staff-onboarding/qr-session")) return null
             val requestToken = response.request.header("Authorization")
                 ?.removePrefix("Bearer ")
                 ?.takeIf { it.isNotBlank() }
@@ -123,6 +127,7 @@ object ApiClient {
 
                 val path = request.url.encodedPath
                 val isPublicAuthEndpoint = path.contains("/api/v1/auth/patron/email")
+                        || (path.startsWith("/api/v1/staff-onboarding/qr-session"))
                         || path.contains("/api/v1/auth/refresh")
                         || path.contains("/api/v1/auth/logout")
                         || path.contains("/api/v1/system/info")
@@ -136,6 +141,10 @@ object ApiClient {
             .addInterceptor(loggingInterceptor)
             .addInterceptor { chain ->
                 val response = chain.proceed(chain.request())
+                if (response.code == 400) {
+                    val message = apiErrorMessage(response.peekBody(16384).string(), "")
+                    if (message.isNotBlank()) validationErrorHandler?.invoke(message)
+                }
                 if (BuildConfig.DEBUG) {
                     val body = response.peekBody(1024L * 1024L).string()
                     Log.i("ApiResponse", "<-- ${response.code} ${response.request.url}")
@@ -183,6 +192,10 @@ object ApiClient {
 
     val requestsService: RequestsService by lazy {
         retrofit.create(RequestsService::class.java)
+    }
+
+    val notificationsService: NotificationsService by lazy {
+        retrofit.create(NotificationsService::class.java)
     }
 
     val branchService: BranchService by lazy {

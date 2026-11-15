@@ -15,8 +15,12 @@ data class OperationalNoteDto(
     @SerializedName("noteContent") val noteContent: String,
     @SerializedName("authorUserId") val authorUserId: String,
     @SerializedName("authorFullName") val authorFullName: String,
-    @SerializedName("createdAtUtc") val createdAtUtc: String
+    @SerializedName("createdAtUtc") val createdAtUtc: String,
+    @SerializedName("branchId") val branchId: String? = null,
+    @SerializedName("mentionedUserIds") val mentionedUserIds: List<String>? = null
 )
+
+data class NoteMentionableUserDto(val userId: String, val fullName: String, val handle: String, val isOwner: Boolean)
 
 data class CreateOperationalNoteCommand(
     @SerializedName("category") val category: String,
@@ -25,10 +29,17 @@ data class CreateOperationalNoteCommand(
     @SerializedName("guestPhone") val guestPhone: String? = null,
     @SerializedName("guestCount") val guestCount: Int? = null,
     @SerializedName("tableNo") val tableNo: String? = null,
-    @SerializedName("noteContent") val noteContent: String
+    @SerializedName("noteContent") val noteContent: String,
+    @SerializedName("mentionedUserIds") val mentionedUserIds: List<String> = emptyList()
 )
 
 interface OperationalNotesService {
+    @GET("/api/v1/operational-notes/mentionable-users")
+    suspend fun getMentionableUsers(@Query("search") search: String? = null): Response<List<NoteMentionableUserDto>>
+
+    @GET("/api/v1/operational-notes/{id}")
+    suspend fun getNote(@Path("id") id: String): Response<OperationalNoteDto>
+
     @GET("/api/v1/operational-notes")
     suspend fun getNotes(
         @Query("date") date: String? = null,
