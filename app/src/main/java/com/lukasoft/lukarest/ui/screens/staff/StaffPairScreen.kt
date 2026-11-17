@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
 import com.lukasoft.lukarest.data.api.ExchangeStaffQrSessionCommand
+import com.lukasoft.lukarest.data.api.RenewStaffQrSessionCommand
 import com.lukasoft.lukarest.data.store.AppRole
 import com.lukasoft.lukarest.data.store.AuthStore
 import com.lukasoft.lukarest.ui.components.LukaCard
@@ -57,9 +58,18 @@ fun StaffPairScreen(
             try {
                 pairingError = null
                 val id = currentSessionId
-                var res = if (id != null && !claimed) ApiClient.staffOnboardingService.renewQrSession(id)
-                    else ApiClient.staffOnboardingService.createQrSession()
-                if (!res.isSuccessful && qrErrorCode(res.errorBody()?.string()) == "qr_session_claimed") {
+                val token = currentQrToken
+                var res = if (id != null && !claimed && !token.isNullOrBlank()) {
+                    ApiClient.staffOnboardingService.renewQrSession(id, RenewStaffQrSessionCommand(token))
+                } else {
+                    ApiClient.staffOnboardingService.createQrSession()
+                }
+                if (!res.isSuccessful && qrErrorCode(res.errorBody()?.string()) in setOf(
+                        "qr_session_claimed",
+                        "qr_token_invalid",
+                        "qr_session_not_found"
+                    )
+                ) {
                     res = ApiClient.staffOnboardingService.createQrSession()
                 }
                 val body = res.body()

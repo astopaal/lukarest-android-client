@@ -84,7 +84,7 @@ object ApiClient {
                     return null
                 }
 
-                if (refreshResponse.code() == 401 || refreshResponse.code() == 400) {
+                if (refreshResponse.code() == 401 || refreshResponse.code() == 400 || refreshResponse.code() == 409) {
                     refreshRejectedHandler?.invoke()
                     return null
                 }
