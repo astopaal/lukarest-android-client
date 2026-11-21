@@ -3,6 +3,7 @@ package com.lukasoft.lukarest
 import com.lukasoft.lukarest.data.api.NoteMentionableUserDto
 import com.lukasoft.lukarest.ui.components.activeNoteMention
 import com.lukasoft.lukarest.ui.components.noteMentionIds
+import com.lukasoft.lukarest.ui.components.noteDisplayText
 import com.lukasoft.lukarest.ui.screens.staff.plannedShiftMinutes
 import org.junit.Assert.*
 import org.junit.Test
@@ -26,6 +27,11 @@ class NoteMentionTest {
         assertEquals(emptyList<String>(), noteMentionIds("@ali_12 @ayse_456x mail@ali_123", people))
         assertEquals(listOf("2"), noteMentionIds("Ali kaldırıldı, (@ayse_456)", people))
         assertEquals(listOf("1"), noteMentionIds("Kontrol: @ali_123.", people))
+    }
+
+    @Test fun showsNamesAndEveryoneWithoutExposingHandleSuffixes() {
+        assertEquals("@Ali, @Ayşe ve @Herkes.", noteDisplayText("@ali_123, @ayse_456 ve @all.", people))
+        assertEquals("@eski personel mail@all.com", noteDisplayText("@eski.personel_ab12cd34 mail@all.com"))
     }
 
     @Test fun calculatesOvernightAndFractionalShifts() {

@@ -51,7 +51,7 @@ class NotebookAndShiftsUiTest {
         compose.onNodeWithText("Samet Kaya").assertDoesNotExist()
         capture("notebook-mention-suggestions")
         compose.onNodeWithText("Ayşe Yılmaz").performClick()
-        compose.onNode(hasSetTextAction()).assertTextContains("@ayse.yilmaz_12345678", substring = true)
+        compose.onNode(hasSetTextAction()).assertTextContains("@Ayşe Yılmaz", substring = true)
         compose.onNode(hasSetTextAction()).performTextInput("@sa")
         compose.onNodeWithText("Samet Kaya").performClick()
         compose.onNode(hasSetTextAction()).performTextReplacement("Akşam devir teslim @samet.kaya_87654321")
@@ -65,6 +65,7 @@ class NotebookAndShiftsUiTest {
         val service = object : OperationalNotesService by ApiClient.operationalNotesService {
             override suspend fun getNote(id: String) = Response.success(note)
             override suspend fun getNotes(date: String?, category: String?) = Response.success(if (date == note.targetDate) listOf(note) else emptyList())
+            override suspend fun getMentionableUsers(search: String?) = Response.success(people)
         }
         compose.setContent { LukarestTheme { OperationalNotesScreen({}, initialNoteId = "note", service = service) } }
         compose.onNodeWithText(date).assertIsDisplayed()

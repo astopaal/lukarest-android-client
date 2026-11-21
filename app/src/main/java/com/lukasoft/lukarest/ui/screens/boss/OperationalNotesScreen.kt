@@ -55,6 +55,23 @@ fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = 
     var editorOpen by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<OperationalNoteDto?>(null) }
     var deleteBusy by remember { mutableStateOf(false) }
+    var people by remember { mutableStateOf<List<NoteMentionableUserDto>>(emptyList()) }
+    var peopleLoading by remember { mutableStateOf(true) }
+    var peopleError by remember { mutableStateOf<String?>(null) }
+    var peopleRetry by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(service, me?.activeBranchId, peopleRetry) {
+        peopleLoading = true
+        peopleError = null
+        try {
+            val response = service.getMentionableUsers()
+            if (response.isSuccessful) people = response.body().orEmpty() else peopleError = "Kişiler yüklenemedi."
+        } catch (_: IOException) {
+            peopleError = "Kişiler yüklenemedi. Bağlantınızı kontrol edin."
+        } finally {
+            peopleLoading = false
+        }
+    }
 
     LaunchedEffect(initialNoteId, linkRetry) {
         if (initialNoteId == null) return@LaunchedEffect
@@ -82,7 +99,8 @@ fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = 
         } catch (_: IOException) { error = "Sunucuya ulaşılamadı. Bağlantınızı kontrol edin."
         } finally { loading = false }
     }
-    val visible = notes.filter { it.category == category }.sortedWith(compareByDescending<OperationalNoteDto> { it.id == highlightedId }.thenByDescending { it.createdAtUtc })
+    val notesForDate = notes.filter { it.targetDate == date }
+    val visible = notesForDate.filter { it.category == category }.sortedWith(compareByDescending<OperationalNoteDto> { it.id == highlightedId }.thenByDescending { it.createdAtUtc })
     val userId = me?.userId
     val manager = me?.globalRole == "CompanyOwner" || me?.roleInBranch in listOf("Owner", "GeneralManager", "ShiftSupervisor")
     fun chooseDate() {
@@ -111,7 +129,7 @@ fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = 
                             FilterChip(selected = category == code, onClick = { category = code },
                                 colors = FilterChipDefaults.filterChipColors(containerColor = White, labelColor = TextMain,
                                     selectedContainerColor = PillBlue.bg, selectedLabelColor = PillBlue.fg), label = {
-                                Text("$label (${notes.count { it.category == code }})", color = if (category == code) PillBlue.fg else TextMain)
+                                Text("$label (${notesForDate.count { it.category == code }})", color = if (category == code) PillBlue.fg else TextMain)
                             })
                         }
                     }
@@ -146,7 +164,7 @@ fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = 
                                 Text(listOfNotNull(note.guestPhone, note.tableNo?.let { "Masa $it" }).joinToString(" · "), color = TextMuted)
                             }
                             Spacer(Modifier.height(10.dp))
-                            NoteContent(note.noteContent)
+                            NoteContent(note.noteContent, people)
                             Spacer(Modifier.height(12.dp))
                             Text(note.authorFullName, color = TextMain, style = MaterialTheme.typography.labelLarge)
                             Text(DateUtils.formatUtcTimestamp(note.createdAtUtc), color = TextMuted, style = MaterialTheme.typography.bodySmall)
@@ -162,7 +180,10 @@ fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = 
             }
         }
     }
-    if (editorOpen) NoteEditor(editing, category, date, service, onClose = { editorOpen = false }, onSaved = { editorOpen = false; refreshKey++ })
+    if (editorOpen) NoteEditor(
+        editing, category, date, service, people, peopleLoading, peopleError, { peopleRetry++ },
+        onClose = { editorOpen = false }, onSaved = { editorOpen = false; refreshKey++ }
+    )
     deleting?.let { note ->
         AlertDialog(onDismissRequest = { if (!deleteBusy) deleting = null }, title = { Text("Bu not silinsin mi?") },
             text = { Text("Not defterden kaldırılacak. Bu işlem geri alınamaz.") },
@@ -184,16 +205,16 @@ fun OperationalNotesScreen(onNavigateBack: () -> Unit, initialNoteId: String? = 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteEditor(note: OperationalNoteDto?, category: String, date: String, service: OperationalNotesService, onClose: () -> Unit, onSaved: () -> Unit) {
+private fun NoteEditor(
+    note: OperationalNoteDto?, category: String, date: String, service: OperationalNotesService,
+    people: List<NoteMentionableUserDto>, peopleLoading: Boolean, peopleError: String?, onRetryPeople: () -> Unit,
+    onClose: () -> Unit, onSaved: () -> Unit
+) {
     var content by remember { mutableStateOf(TextFieldValue(note?.noteContent.orEmpty(), TextRange(note?.noteContent?.length ?: 0))) }
     var guest by remember { mutableStateOf(note?.guestName.orEmpty()) }
     var phone by remember { mutableStateOf(note?.guestPhone.orEmpty()) }
     var count by remember { mutableStateOf(note?.guestCount?.toString() ?: "2") }
     var table by remember { mutableStateOf(note?.tableNo.orEmpty()) }
-    var people by remember { mutableStateOf<List<NoteMentionableUserDto>>(emptyList()) }
-    var peopleLoading by remember { mutableStateOf(true) }
-    var peopleError by remember { mutableStateOf<String?>(null) }
-    var peopleRetry by remember { mutableIntStateOf(0) }
     var saving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
     var discard by remember { mutableStateOf(false) }
@@ -201,16 +222,6 @@ private fun NoteEditor(note: OperationalNoteDto?, category: String, date: String
     val changed = content.text != note?.noteContent.orEmpty() || guest != note?.guestName.orEmpty() || phone != note?.guestPhone.orEmpty() ||
         table != note?.tableNo.orEmpty() || count != (note?.guestCount?.toString() ?: "2")
     fun dismiss() { if (!saving) { if (changed) discard = true else onClose() } }
-    LaunchedEffect(peopleRetry) {
-        peopleLoading = true
-        peopleError = null
-        try {
-            val response = service.getMentionableUsers()
-            if (response.isSuccessful) people = response.body().orEmpty() else peopleError = "Kişiler yüklenemedi."
-        } catch (e: CancellationException) { throw e
-        } catch (_: IOException) { peopleError = "Kişiler yüklenemedi. Bağlantınızı kontrol edin."
-        } finally { peopleLoading = false }
-    }
     LukaBottomSheet(onDismissRequest = { dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
         confirmValueChange = { value ->
             if (saving) false else if (value == SheetValue.Hidden && changed) { discard = true; false } else true
@@ -227,7 +238,7 @@ private fun NoteEditor(note: OperationalNoteDto?, category: String, date: String
                         OutlinedTextField(table, { table = it }, label = { Text("Masa") }, enabled = !saving, singleLine = true, modifier = Modifier.weight(1f))
                     }
                 }
-                NoteMentionField(content, { content = it }, people, peopleLoading, peopleError, { peopleRetry++ }, enabled = !saving)
+                NoteMentionField(content, { content = it }, people, peopleLoading, peopleError, onRetryPeople, enabled = !saving)
                 saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -253,7 +264,7 @@ private fun NoteEditor(note: OperationalNoteDto?, category: String, date: String
                     Text(if (saving) "Kaydediliyor…" else "Kaydet", color = LocalContentColor.current)
                 }
             }
-            if (peopleError != null) TextButton(onClick = { peopleRetry++ }, enabled = !saving) { Text("Kaydetmek için kişi listesini tekrar yükle") }
+            if (peopleError != null) TextButton(onClick = onRetryPeople, enabled = !saving) { Text("Kaydetmek için kişi listesini tekrar yükle") }
             Spacer(Modifier.height(12.dp))
         }
     }
