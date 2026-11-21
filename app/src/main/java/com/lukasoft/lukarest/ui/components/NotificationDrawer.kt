@@ -16,17 +16,17 @@ fun NotificationDrawer(onSelect: (PushPayload) -> Unit, service: NotificationsSe
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val userId by AuthStore.userId.collectAsState()
+    val globalRole by AuthStore.globalRole.collectAsState()
     var rows by remember(userId) { mutableStateOf<List<NotificationItemDto>>(emptyList()) }
     var page by remember(userId) { mutableIntStateOf(1) }
     var hasMore by remember(userId) { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var muted by remember(userId) { mutableStateOf(emptySet<String>()) }
+    var muted by remember(userId) { mutableStateOf<Set<String>?>(null) }
     var muting by remember { mutableStateOf<String?>(null) }
-    var mutedDay by remember { mutableStateOf(com.lukasoft.lukarest.data.util.DateUtils.getTurkeyTodayIso()) }
     androidx.activity.compose.BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
     fun load(next: Boolean) {
-        if (busy) return
+        if (busy || muting != null) return
         scope.launch {
             busy = true
             error = null
@@ -38,6 +38,7 @@ fun NotificationDrawer(onSelect: (PushPayload) -> Unit, service: NotificationsSe
                     rows = ((if (next) rows else emptyList()) + body.items).distinctBy { it.notificationId }
                     page = target
                     hasMore = body.hasMore
+                    muted = body.mutedCategories?.toSet()
                 } else error = "Bildirimler yüklenemedi (${response.code()})."
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
             } catch (_: java.io.IOException) { error = "Sunucuya ulaşılamadı."
@@ -53,27 +54,37 @@ fun NotificationDrawer(onSelect: (PushPayload) -> Unit, service: NotificationsSe
                     Text("Bildirimler", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 14.dp))
                     TextButton(onClick = { scope.launch { drawer.close() } }) { Text("Kapat") }
                 }
-                Text("Bugün sustur", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.titleSmall)
-                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                    listOf("request" to "Talep", "task" to "Görev", "shift" to "Vardiya", "notice" to "Duyuru").chunked(2).forEach { categories ->
-                    Row(Modifier.fillMaxWidth()) {
-                    categories.forEach { (category, label) ->
-                        TextButton(modifier = Modifier.weight(1f), enabled = muting == null && category !in muted, onClick = {
-                            scope.launch {
-                                muting = category
-                                try {
-                                    val result = service.mute(MuteNotificationsBody(category))
-                                    if (result.isSuccessful) {
-                                        muted = muted + category
-                                        LukaFeedback.show("$label bildirimleri Türkiye günü sonuna kadar susturuldu")
-                                    } else error = "Bildirimler susturulamadı (${result.code()})."
-                                } catch (e: kotlinx.coroutines.CancellationException) { throw e
-                                } catch (_: java.io.IOException) { error = "Sunucuya ulaşılamadı."
-                                } finally { muting = null }
+                if (globalRole == "CompanyOwner" && muted != null) {
+                    Text("Bildirim tercihleri", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.titleSmall)
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                        val categories = listOf("request" to "Talep", "task" to "Görev", "shift" to "Vardiya", "notice" to "Duyuru")
+                        categories.chunked(2).forEach { group ->
+                            Row(Modifier.fillMaxWidth()) {
+                                group.forEach { (category, label) ->
+                                    val isMuted = category in muted.orEmpty()
+                                    TextButton(
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                        enabled = !busy && muting == null,
+                                        onClick = {
+                                            scope.launch {
+                                                muting = category
+                                                error = null
+                                                try {
+                                                    val result = service.mute(MuteNotificationsBody(category, muted = !isMuted))
+                                                    if (result.isSuccessful) {
+                                                        muted = if (isMuted) muted.orEmpty() - category else muted.orEmpty() + category
+                                                    } else error = "Bildirim tercihi kaydedilemedi."
+                                                } catch (_: java.io.IOException) {
+                                                    error = "Sunucuya ulaşılamadı."
+                                                } finally {
+                                                    muting = null
+                                                }
+                                            }
+                                        }
+                                    ) { Text("$label: ${if (isMuted) "Yeniden aç" else "Bugün sustur"}") }
+                                }
                             }
-                        }) { Text(if (category in muted) "$label ✓" else label, maxLines = 1) }
-                    }
-                    }
+                        }
                     }
                 }
                 HorizontalDivider()
@@ -93,7 +104,11 @@ fun NotificationDrawer(onSelect: (PushPayload) -> Unit, service: NotificationsSe
                         }, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors(containerColor = com.lukasoft.lukarest.ui.theme.White), border = androidx.compose.foundation.BorderStroke(1.dp, com.lukasoft.lukarest.ui.theme.BorderSoft)) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                 Text(notificationTitle(row.type), style = MaterialTheme.typography.titleSmall)
-                                row.contextText?.let { Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                                row.contextText?.let {
+                                    Text(if (row.category == "notice") noteDisplayText(it) else it,
+                                        style = MaterialTheme.typography.bodyMedium, maxLines = 3,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                }
                                 StatusPill(if (row.openedAtUtc == null) "Açılmadı" else "Açıldı", pillColor = if (row.openedAtUtc == null) com.lukasoft.lukarest.ui.theme.PillBlue else com.lukasoft.lukarest.ui.theme.PillNeutral)
                                 Text(com.lukasoft.lukarest.data.util.DateUtils.formatUtcTimestamp(row.sentAtUtc), style = MaterialTheme.typography.bodySmall)
                             }
@@ -108,8 +123,6 @@ fun NotificationDrawer(onSelect: (PushPayload) -> Unit, service: NotificationsSe
         }
     ) {
         content {
-            val today = com.lukasoft.lukarest.data.util.DateUtils.getTurkeyTodayIso()
-            if (today != mutedDay) { mutedDay = today; muted = emptySet() }
             load(false)
             scope.launch { drawer.open() }
         }

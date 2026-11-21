@@ -8,9 +8,9 @@ import retrofit2.http.GET
 import retrofit2.http.Query
 
 data class ReviewTaskBody(val isApproved: Boolean, val note: String?)
-data class MuteNotificationsBody(val category: String)
+data class MuteNotificationsBody(val category: String, val muted: Boolean = true)
 data class NotificationItemDto(val notificationId: String, val type: String, val id: String, val category: String, val sentAtUtc: String, val openedAtUtc: String?, val contextText: String? = null)
-data class NotificationPageDto(val items: List<NotificationItemDto>, val hasMore: Boolean)
+data class NotificationPageDto(val items: List<NotificationItemDto>, val hasMore: Boolean, val mutedCategories: List<String>? = null)
 data class PushPayload(val type: String, val id: String, val notificationId: String? = null, val priority: String? = null)
 
 interface NotificationsService {

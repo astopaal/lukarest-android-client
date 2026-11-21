@@ -110,14 +110,16 @@ class TaskUiContractTest {
     }
 
     @Test fun notificationDrawerPaginatesMutesAndSelectsTheDelivery() {
-        var mutedCategory: String? = null
+        val owner = MeDto("owner", "Test Patron", null, "", "", "", "CompanyOwner", "company", "Test", "branch", "Şube", "Owner")
+        AuthStore.updateUser(owner)
+        var mutedCategories = emptyList<String>()
         var selected: com.lukasoft.lukarest.data.api.PushPayload? = null
         val service = object : com.lukasoft.lukarest.data.api.NotificationsService {
             override suspend fun list(page: Int, pageSize: Int) = retrofit2.Response.success(com.lukasoft.lukarest.data.api.NotificationPageDto(
-                listOf(com.lukasoft.lukarest.data.api.NotificationItemDto("delivery-$page", "task.assigned", "task-$page", "task", "2026-11-12T10:00:00Z", null, "Kontrol kartı $page")), page == 1))
+                listOf(com.lukasoft.lukarest.data.api.NotificationItemDto("delivery-$page", "task.assigned", "task-$page", "task", "2026-11-12T10:00:00Z", null, "Kontrol kartı $page")), page == 1, mutedCategories))
             override suspend fun open(id: String) = retrofit2.Response.success<Unit>(null)
             override suspend fun mute(body: com.lukasoft.lukarest.data.api.MuteNotificationsBody): retrofit2.Response<Unit> {
-                mutedCategory = body.category
+                mutedCategories = if (body.muted) mutedCategories + body.category else mutedCategories - body.category
                 return retrofit2.Response.success(null)
             }
         }
@@ -135,9 +137,16 @@ class TaskUiContractTest {
         compose.onNodeWithText("Bildirimleri yenile").performScrollTo().performClick()
         compose.onNodeWithText("Daha fazla bildirim yükle").performScrollTo().performClick()
         compose.onNodeWithText("Kontrol kartı 2").assertExists()
-        compose.onNodeWithText("Talep").performClick()
-        compose.runOnIdle { org.junit.Assert.assertEquals("request", mutedCategory) }
+        compose.onNodeWithText("Talep: Bugün sustur").performClick()
+        compose.runOnIdle { org.junit.Assert.assertEquals(listOf("request"), mutedCategories) }
+        compose.onNodeWithText("Talep: Yeniden aç").performClick()
+        compose.runOnIdle { org.junit.Assert.assertTrue(mutedCategories.isEmpty()) }
+        compose.runOnIdle { AuthStore.updateUser(owner.copy(userId = "worker", globalRole = "Staff", roleInBranch = "Waiter")) }
+        compose.onNodeWithText("Bildirim tercihleri").assertDoesNotExist()
         capture("notification-drawer")
+        compose.onNodeWithText("Kapat").performClick()
+        compose.onNodeWithText("Bildirimleri aç").performClick()
+        compose.onNodeWithText("Daha fazla bildirim yükle").performScrollTo().performClick()
         compose.onNodeWithText("Kontrol kartı 2").performClick()
         compose.runOnIdle { org.junit.Assert.assertEquals("delivery-2", selected?.notificationId) }
     }
