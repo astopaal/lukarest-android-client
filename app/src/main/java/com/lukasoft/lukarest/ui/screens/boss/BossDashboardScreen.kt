@@ -616,7 +616,7 @@ fun BossDashboardScreen(
                         ) {
                             Column {
                                 Text(text = br.name, fontWeight = FontWeight.Bold, color = TextMain)
-                                Text(text = "${br.branchCode} • ${br.openingTime}-${br.closingTime}", fontSize = 12.sp, color = TextMuted)
+                                Text(text = "${br.branchCode} · ${br.openingTime.take(5)}–${br.closingTime.take(5)}", fontSize = 12.sp, color = TextMuted)
                             }
                             if (isSelected) {
                                 Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = StaffGradStart)

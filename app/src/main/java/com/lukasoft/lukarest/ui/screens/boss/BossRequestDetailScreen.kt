@@ -250,7 +250,7 @@ fun BossRequestDetailScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(text = "Mevcut Vardiya", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextMain)
                         Text(
-                            text = "${sc.currentStartTime} — ${sc.currentEndTime}",
+                            text = "${sc.currentStartTime?.take(5).orEmpty()} – ${sc.currentEndTime?.take(5).orEmpty()}",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = StaffGradStart
@@ -260,7 +260,7 @@ fun BossRequestDetailScreen(
 
                         Text(text = "Talep Edilen Yeni Saat", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = BossGradStart)
                         Text(
-                            text = "${sc.proposedStartTime} — ${sc.proposedEndTime}",
+                            text = "${sc.proposedStartTime?.take(5).orEmpty()} – ${sc.proposedEndTime?.take(5).orEmpty()}",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0C326B)

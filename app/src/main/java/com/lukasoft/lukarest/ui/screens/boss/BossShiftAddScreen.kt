@@ -335,7 +335,7 @@ fun BossShiftAddScreen(
                                     )
                                     Column {
                                         Text(text = def.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextMain)
-                                        Text(text = "${def.startTime} — ${def.endTime}", fontSize = 12.sp, color = TextMuted)
+                                        Text(text = "${def.startTime.take(5)} – ${def.endTime.take(5)}", fontSize = 12.sp, color = TextMuted)
                                     }
                                 }
                                 StatusPill(text = def.shortCode.ifEmpty { "V" }, pillColor = PillBlue)
