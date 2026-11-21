@@ -3,7 +3,12 @@ package com.lukasoft.lukarest
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import com.lukasoft.lukarest.data.api.ApiClient
+import com.lukasoft.lukarest.data.api.AttendanceDayDto
+import com.lukasoft.lukarest.data.api.AttendanceService
+import com.lukasoft.lukarest.data.api.MeDto
 import com.lukasoft.lukarest.data.model.*
+import com.lukasoft.lukarest.data.store.AuthStore
 import com.lukasoft.lukarest.ui.components.PriorityField
 import com.lukasoft.lukarest.ui.screens.staff.StaffTaskCompleteScreen
 import com.lukasoft.lukarest.ui.theme.LukarestTheme
@@ -11,6 +16,7 @@ import com.lukasoft.lukarest.ui.viewmodel.LukaViewModel
 import org.junit.Rule
 import org.junit.Test
 import org.junit.After
+import retrofit2.Response
 
 class TaskUiContractTest {
     @get:Rule val compose = createComposeRule()
@@ -30,11 +36,17 @@ class TaskUiContractTest {
         }
     }
 
-    private fun showTask(proof: String, status: TaskStatus = TaskStatus.PENDING) {
+    private fun showTask(proof: String, status: TaskStatus = TaskStatus.PENDING, clockedIn: Boolean = true) {
         val vm = LukaViewModel()
         vm.setTasks(listOf(TaskItem(id = "proof-test", title = "Kanıt kontrolü", startTime = "10:00", shiftId = "", assignedTo = "me",
             mediaRequired = true, allowedProofType = proof, status = status, reviewNote = if (status == TaskStatus.REJECTED) "Yeni fotoğraf gerekli" else null)))
-        compose.setContent { LukarestTheme { StaffTaskCompleteScreen("proof-test", vm, {}) } }
+        val attendance = object : AttendanceService by ApiClient.attendanceService {
+            override suspend fun getMyAttendance(date: String?) = Response.success(
+                AttendanceDayDto("shift", "2026-11-21", "09:00:00", "17:00:00", false,
+                    if (clockedIn) "2026-11-21T06:00:00Z" else null, null)
+            )
+        }
+        compose.setContent { LukarestTheme { StaffTaskCompleteScreen("proof-test", vm, {}, attendance) } }
     }
 
     @Test fun photoProofHasOnlyTheCameraAction() {
@@ -63,6 +75,13 @@ class TaskUiContractTest {
         showTask("PhotoOnly", TaskStatus.REJECTED)
         compose.onNodeWithText("Yönetici notu: Yeni fotoğraf gerekli").assertExists()
         compose.onNode(hasText("Görevi Tamamla") and hasClickAction()).assertIsEnabled()
+    }
+
+    @Test fun taskActionsRequireClockIn() {
+        showTask("PhotoOnly", clockedIn = false)
+        compose.onNodeWithText("Göreve başlamak için önce Bugün ekranından vardiyanızı başlatın.").assertExists()
+        compose.onNodeWithText("Kamerayı aç").assertIsNotEnabled()
+        compose.onNode(hasText("Görevi Tamamla") and hasClickAction()).assertIsNotEnabled()
     }
 
     @Test fun prioritySelectionUpdatesTheDisplayedValue() {

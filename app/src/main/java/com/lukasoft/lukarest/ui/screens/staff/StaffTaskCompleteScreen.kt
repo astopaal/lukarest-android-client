@@ -31,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lukasoft.lukarest.data.api.ApiClient
+import com.lukasoft.lukarest.data.api.AttendanceService
+import com.lukasoft.lukarest.data.api.apiErrorMessage
 import com.google.gson.JsonParser
 import com.lukasoft.lukarest.data.api.toTaskItem
 import com.lukasoft.lukarest.data.api.CompleteTaskBody
@@ -52,17 +54,34 @@ private const val MAX_PROOF_BYTES = 20L * 1024L * 1024L
 fun StaffTaskCompleteScreen(
     taskId: String,
     viewModel: LukaViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    attendanceService: AttendanceService = ApiClient.attendanceService
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tasks by viewModel.tasks.collectAsState()
     val task = tasks.find { it.id == taskId }
-    val canSubmit = task != null && task.status !in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL)
+    val taskIsOpen = task != null && task.status !in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL)
+    var clockedIn by remember(taskId) { mutableStateOf<Boolean?>(null) }
+    var attendanceFailed by remember(taskId) { mutableStateOf(false) }
+    var attendanceRetry by remember(taskId) { mutableIntStateOf(0) }
+    LaunchedEffect(taskId, taskIsOpen, attendanceRetry) {
+        if (!taskIsOpen) return@LaunchedEffect
+        attendanceFailed = false
+        clockedIn = null
+        try {
+            val response = attendanceService.getMyAttendance()
+            val attendance = response.body()
+            attendanceFailed = !response.isSuccessful || attendance == null
+            if (!attendanceFailed) clockedIn = attendance?.clockInUtc != null && attendance.clockOutUtc == null
+        } catch (_: java.io.IOException) {
+            attendanceFailed = true
+        }
+    }
+    val canSubmit = taskIsOpen && clockedIn == true
     var note by remember { mutableStateOf("") }
-    var selectedUriText by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedUri = selectedUriText?.let(Uri::parse)
-    var selectedMediaKind by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedUris by rememberSaveable(taskId) { mutableStateOf(arrayListOf<String>()) }
+    val uploadedIds = remember(taskId) { mutableStateMapOf<String, String>() }
     var isSubmitting by remember { mutableStateOf(false) }
     var refreshRequired by remember { mutableStateOf(false) }
 
@@ -86,15 +105,13 @@ fun StaffTaskCompleteScreen(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
         val uri = cameraUri
         if (captured && uri != null) {
-            selectedUriText = uri.toString()
-            selectedMediaKind = "photo"
+            selectedUris = ArrayList(selectedUris + uri.toString())
             errorMessage = null
         }
     }
     val videoCamera = rememberLauncherForActivityResult(ActivityResultContracts.CaptureVideo()) { captured ->
         if (captured && cameraUri != null) {
-            selectedUriText = cameraUri.toString()
-            selectedMediaKind = "video"
+            selectedUris = ArrayList(selectedUris + cameraUri.toString())
             errorMessage = null
         }
     }
@@ -119,31 +136,41 @@ fun StaffTaskCompleteScreen(
             errorMessage = "Görev bilgisi bulunamadı. Görev listesini yenileyip tekrar deneyin."
             return
         }
-        if (isSubmitting || refreshRequired || currentTask.status in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL)) return
+        if (!canSubmit || isSubmitting || refreshRequired) return
         scope.launch {
             isSubmitting = true
             errorMessage = null
             try {
-                var proofIds = emptyList<String>()
+                val proofIds = mutableListOf<String>()
                 if (currentTask.mediaRequired || currentTask.requiresApproval) {
-                    val uri = selectedUri
-                    if (uri == null) {
+                    if (selectedUris.isEmpty()) {
                         errorMessage = "Bu görevi tamamlamak için kameradan kanıt çekin."
                         return@launch
                     }
-                    val media = readProofFile(context, uri, currentTask.allowedProofType)
-                    if (media == null) {
-                        errorMessage = "Dosya okunamadı, 20 MB sınırını aşıyor ya da izin verilen kanıt türüne uymuyor."
-                        return@launch
+                    for (uri in selectedUris) {
+                        val uploadedId = uploadedIds[uri]
+                        if (uploadedId != null) {
+                            proofIds.add(uploadedId)
+                            continue
+                        }
+                        val media = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            readProofFile(context, Uri.parse(uri), currentTask.allowedProofType)
+                        }
+                        if (media == null) {
+                            errorMessage = "Dosya okunamadı, 20 MB sınırını aşıyor ya da izin verilen kanıt türüne uymuyor."
+                            return@launch
+                        }
+                        val body = media.bytes.toRequestBody(media.mimeType.toMediaTypeOrNull())
+                        val part = MultipartBody.Part.createFormData("file", media.fileName, body)
+                        val upload = ApiClient.tasksService.uploadTaskMedia(currentTask.id, part)
+                        val proof = upload.body()
+                        if (!upload.isSuccessful || proof == null) {
+                            errorMessage = apiErrorMessage(upload.errorBody()?.string(), "Kanıt yüklenemedi. Tekrar deneyin.")
+                            return@launch
+                        }
+                        uploadedIds[uri] = proof.id
+                        proofIds.add(proof.id)
                     }
-                    val body = media.bytes.toRequestBody(media.mimeType.toMediaTypeOrNull())
-                    val part = MultipartBody.Part.createFormData("file", media.fileName, body)
-                    val upload = ApiClient.tasksService.uploadTaskMedia(currentTask.id, part)
-                    if (!upload.isSuccessful || upload.body() == null) {
-                        errorMessage = "Kanıt yüklenemedi (${upload.code()}): ${upload.errorBody()?.string()?.take(220).orEmpty()}"
-                        return@launch
-                    }
-                    proofIds = listOf(upload.body()!!.id)
                 }
 
                 val complete = ApiClient.tasksService.completeTask(
@@ -151,8 +178,9 @@ fun StaffTaskCompleteScreen(
                     CompleteTaskBody(completionNote = note.trim().ifBlank { null }, mediaProofIds = proofIds)
                 )
                 if (!complete.isSuccessful) {
+                    val errorBody = complete.errorBody()?.string()
                     val errorTitle = runCatching {
-                        JsonParser.parseString(complete.errorBody()?.string().orEmpty())
+                        JsonParser.parseString(errorBody.orEmpty())
                             .asJsonObject.get("title")?.asString
                     }.getOrNull()
                     if (complete.code() == 400 && errorTitle == "task_already_completed") {
@@ -164,7 +192,7 @@ fun StaffTaskCompleteScreen(
                             errorMessage = "Bu görev zaten tamamlandı. Güncel durum için görev listesini yenileyin."
                         }
                     } else {
-                        errorMessage = "Tamamlama kaydedilemedi. Görev listesini yenileyip tekrar deneyin."
+                        errorMessage = apiErrorMessage(errorBody, "Tamamlama kaydedilemedi. Tekrar deneyin.")
                     }
                     return@launch
                 }
@@ -262,18 +290,33 @@ fun StaffTaskCompleteScreen(
                             Text("Video çek")
                         }
                     }
-                    selectedUri?.let {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Seçilen ${if (selectedMediaKind == "video") "video" else "fotoğraf"}: ${displayName(context, it)}", color = StaffGradStart, fontSize = 12.sp)
+                    selectedUris.forEachIndexed { index, uri ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(displayName(context, Uri.parse(uri)), modifier = Modifier.weight(1f), color = TextMain)
+                            if (uri in uploadedIds) Text("Yüklendi", color = PillOk.fg)
+                            else TextButton(enabled = !isSubmitting, onClick = {
+                                selectedUris = ArrayList(selectedUris.filterNot { it == uri })
+                            }) { Text("${index + 1}. kanıtı kaldır") }
+                        }
                     }
-                    Text("Yalnız bu ekranda çekilen kamera kanıtı · en fazla 20 MB", color = TextMuted, fontSize = 11.sp)
+                    Text("Bu ekranda çekilen her fotoğraf veya video en fazla 20 MB olabilir.", color = TextMuted, fontSize = 12.sp)
                 }
             }
 
+            if (taskIsOpen && !canSubmit) {
+                val message = when {
+                    attendanceFailed -> "Vardiya durumu alınamadı."
+                    clockedIn == false -> "Göreve başlamak için önce Bugün ekranından vardiyanızı başlatın."
+                    else -> "Vardiya durumu kontrol ediliyor."
+                }
+                Text(message, color = if (clockedIn == null && !attendanceFailed) TextMuted else PillErr.fg)
+                if (attendanceFailed) TextButton(onClick = { attendanceRetry++ }) { Text("Tekrar dene") }
+            }
             LukaCard {
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it.take(2000) },
+                    enabled = canSubmit && !isSubmitting,
                     label = { Text("Tamamlama notu (isteğe bağlı)") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -308,7 +351,7 @@ fun StaffTaskCompleteScreen(
                 text = if (isSubmitting) "Gönderiliyor..." else if (task?.isShared == true) "Bir tamamlama kaydet" else "Görevi Tamamla",
                 onClick = { submitCompletion() },
                 loading = isSubmitting,
-                enabled = !isSubmitting && !refreshRequired && task != null && task.status !in listOf(TaskStatus.DONE, TaskStatus.AWAITING_APPROVAL),
+                enabled = !isSubmitting && !refreshRequired && canSubmit,
                 gradient = StaffGradient
             )
         }
