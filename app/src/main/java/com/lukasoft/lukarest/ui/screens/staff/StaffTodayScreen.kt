@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,9 +49,7 @@ fun StaffTodayScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val currentUser by viewModel.currentUser.collectAsState()
-    val isOnBreak by viewModel.isOnBreak.collectAsState()
-
-    val todayIso = remember { DateUtils.getTodayIso() }
+    val todayIso = DateUtils.getTurkeyTodayIso()
     val currentMonday = remember { DateUtils.getCurrentWeekMonday() }
     val weekDays = remember(currentMonday) { DateUtils.getWeekDays(currentMonday) }
 
@@ -58,6 +59,16 @@ fun StaffTodayScreen(
     var attendanceData by remember { mutableStateOf<AttendanceDayDto?>(null) }
     var isAttendanceActionLoading by remember { mutableStateOf(false) }
     var loadErrors by remember { mutableStateOf(emptySet<String>()) }
+    var clockInError by remember { mutableStateOf<String?>(null) }
+    val breakStartedAt = attendanceData?.breaks?.lastOrNull { it.endUtc == null }?.startUtc
+    val breakMinutes by produceState(0L, breakStartedAt) {
+        val start = breakStartedAt?.let(DateUtils::utcTimestampMillis) ?: return@produceState
+        while (true) {
+            val elapsed = (System.currentTimeMillis() - start).coerceAtLeast(0L)
+            value = elapsed / 60_000L
+            kotlinx.coroutines.delay(60_000L - elapsed % 60_000L)
+        }
+    }
 
     fun loadTodayData() {
         coroutineScope.launch {
@@ -92,7 +103,7 @@ fun StaffTodayScreen(
 
             // 3) Puantaj / Mola durumunu çek
             try {
-                val attRes = ApiClient.attendanceService.getMyAttendance(todayIso)
+                val attRes = ApiClient.attendanceService.getMyAttendance()
                 if (attRes.isSuccessful && attRes.body() != null) {
                     attendanceData = attRes.body()
                 } else {
@@ -110,16 +121,19 @@ fun StaffTodayScreen(
     fun handleClockIn() {
         coroutineScope.launch {
             isAttendanceActionLoading = true
+            clockInError = null
             try {
                 val res = ApiClient.attendanceService.clockIn()
                 if (res.isSuccessful && res.body() != null) {
                     attendanceData = res.body()
                     LukaFeedback.show("Vardiyaya giriş yapıldı!")
                 } else {
-                    LukaFeedback.show(com.lukasoft.lukarest.data.api.apiErrorMessage(res.errorBody()?.string(), "Giriş yapılamadı: ${res.code()}"))
+                    clockInError = com.lukasoft.lukarest.data.api.apiErrorMessage(
+                        res.errorBody()?.string(), "Vardiya başlatılamadı. Tekrar deneyin."
+                    )
                 }
-            } catch (e: Exception) {
-                LukaFeedback.show("Hata: ${e.localizedMessage}")
+            } catch (_: java.io.IOException) {
+                clockInError = "Bağlantı kurulamadı. Vardiyayı tekrar başlatmayı deneyin."
             } finally {
                 isAttendanceActionLoading = false
                 loadTodayData()
@@ -284,7 +298,8 @@ fun StaffTodayScreen(
 
             // Aktif Vardiya Kartı
             item {
-                val isOff = todayMyShiftDay?.isOffDay == true || attendanceData?.isOffDay == true
+                val isOff = attendanceData?.takeIf { it.shiftInstanceId != null }?.isOffDay
+                    ?: (todayMyShiftDay?.isOffDay == true)
                 val hasShift = (todayMyShiftDay?.startTime != null && todayMyShiftDay?.endTime != null) || attendanceData?.plannedStart != null
                 val isClockedIn = attendanceData?.clockInUtc != null
                 val isClockedOut = attendanceData?.clockOutUtc != null
@@ -339,13 +354,17 @@ fun StaffTodayScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    val startFormatted = attendanceData?.plannedStart ?: todayMyShiftDay?.startTime?.take(5)
-                    val endFormatted = attendanceData?.plannedEnd ?: todayMyShiftDay?.endTime?.take(5)
+                    val startFormatted = (attendanceData?.plannedStart ?: todayMyShiftDay?.startTime)?.take(5)
+                    val endFormatted = (attendanceData?.plannedEnd ?: todayMyShiftDay?.endTime)?.take(5)
+                    clockInError?.let { Text(it, color = PillErr.fg, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                    if (hasOpenBreak && breakStartedAt != null) {
+                        Text("Mola süresi: $breakMinutes dk", color = TextMain, style = MaterialTheme.typography.titleSmall)
+                    }
 
                     Text(
                         text = when {
                             isOff -> "İzin Günü"
-                            startFormatted != null && endFormatted != null -> "$startFormatted — $endFormatted"
+                            startFormatted != null && endFormatted != null -> "$startFormatted – $endFormatted"
                             else -> "—"
                         },
                         fontSize = 20.sp,

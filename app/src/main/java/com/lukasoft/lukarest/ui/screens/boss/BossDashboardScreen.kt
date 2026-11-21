@@ -83,6 +83,8 @@ fun BossDashboardScreen(
     var menuOpen by remember { mutableStateOf(false) }
 
     var timesheet by remember { mutableStateOf<List<TimesheetRowDto>>(emptyList()) }
+    var timesheetLoaded by remember { mutableStateOf<Boolean?>(null) }
+    var timesheetRefresh by remember { mutableIntStateOf(0) }
     var upcomingBirthdays by remember { mutableStateOf<List<UpcomingBirthdayDto>>(emptyList()) }
     var pendingReqCount by remember { mutableIntStateOf(0) }
     var branches by remember { mutableStateOf<List<BranchDto>>(emptyList()) }
@@ -136,13 +138,6 @@ fun BossDashboardScreen(
                     group.tasks.map { it.toTaskItem(group.fullName, group.shiftShortCode.orEmpty()) }
                 }
                 viewModel.setTasks(serverList)
-                true
-            }
-            loadSection("Puantaj") {
-                val response = ApiClient.attendanceService.getTimesheet(today)
-                val body = response.body()
-                if (!response.isSuccessful || body == null) return@loadSection false
-                timesheet = body
                 true
             }
             loadSection("Talepler") {
@@ -225,12 +220,28 @@ fun BossDashboardScreen(
 
     LaunchedEffect(activeBranchId, weekStart) {
         branches = emptyList()
-        timesheet = emptyList()
         upcomingBirthdays = emptyList()
         pendingReqCount = 0
         viewModel.setStaffList(emptyList())
         viewModel.setTasks(emptyList())
         refreshDashboard()
+    }
+
+    LaunchedEffect(activeBranchId, timesheetRefresh) {
+        timesheet = emptyList()
+        timesheetLoaded = null
+        while (activeBranchId != null) {
+            try {
+                val response = ApiClient.attendanceService.getTimesheet(DateUtils.getTurkeyTodayIso())
+                val rows = response.body()
+                timesheetLoaded = response.isSuccessful && rows != null
+                timesheet = if (timesheetLoaded == true) rows.orEmpty() else emptyList()
+            } catch (_: IOException) {
+                timesheet = emptyList()
+                timesheetLoaded = false
+            }
+            kotlinx.coroutines.delay(30_000L)
+        }
     }
 
     Scaffold(
@@ -310,7 +321,7 @@ fun BossDashboardScreen(
     ) { innerPadding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = { refreshDashboard() },
+            onRefresh = { timesheetRefresh++; refreshDashboard() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
@@ -472,7 +483,7 @@ fun BossDashboardScreen(
                 ) {
                     val activeInShift = timesheet.count { it.clockInUtc != null && it.clockOutUtc == null }
                     val totalStaffCount = if (timesheet.isNotEmpty()) timesheet.size else staffList.size
-                    val timesheetUnavailable = "Puantaj" in dashboardErrors || isRefreshing && timesheet.isEmpty()
+                    val timesheetUnavailable = timesheetLoaded != true
                     val tasksUnavailable = "Görevler" in dashboardErrors || isRefreshing && tasks.isEmpty()
                     val requestsUnavailable = "Talepler" in dashboardErrors || isRefreshing && pendingReqCount == 0
 
@@ -485,8 +496,8 @@ fun BossDashboardScreen(
                         }
                         Text(
                             text = when {
-                                "Puantaj" in dashboardErrors -> "puantaj alınamadı"
-                                isRefreshing && timesheet.isEmpty() -> "yükleniyor..."
+                                timesheetLoaded == false -> "puantaj alınamadı"
+                                timesheetLoaded == null -> "yükleniyor..."
                                 else -> "aktif vardiyada"
                             },
                             fontSize = 11.sp,
@@ -541,6 +552,23 @@ fun BossDashboardScreen(
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF7A4F00)
                         )
+                    }
+                }
+            }
+
+            val onBreak = timesheet.filter { it.openBreakStartedAtUtc != null }
+            if (onBreak.isNotEmpty()) {
+                item {
+                    LukaCard(elevation = 0.dp) {
+                        Text("Moladaki personel", style = MaterialTheme.typography.titleMedium, color = BossGradStart)
+                        onBreak.forEach { person ->
+                            Text(
+                                "${person.fullName} · ${person.openBreakStartedAtUtc?.let(DateUtils::formatUtcTimestamp).orEmpty()}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextMain,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -6,9 +6,13 @@ import java.util.Date
 import java.util.Locale
 
 object DateUtils {
-    fun formatUtcTimestamp(value: String): String = runCatching {
+    fun utcTimestampMillis(value: String): Long? = runCatching {
         val utc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).apply { timeZone = java.util.TimeZone.getTimeZone("UTC"); isLenient = false }
-        val instant = utc.parse(value.take(19)) ?: return value
+        utc.parse(value.take(19))?.time
+    }.getOrNull()
+
+    fun formatUtcTimestamp(value: String): String = runCatching {
+        val instant = utcTimestampMillis(value)?.let(::Date) ?: return value
         SimpleDateFormat("dd MMM yyyy HH:mm", Locale.forLanguageTag("tr-TR")).apply {
             timeZone = java.util.TimeZone.getTimeZone("Europe/Istanbul")
         }.format(instant)

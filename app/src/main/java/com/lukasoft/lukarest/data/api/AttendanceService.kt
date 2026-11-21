@@ -34,7 +34,8 @@ data class TimesheetRowDto(
     @SerializedName("clockOutUtc") val clockOutUtc: String?,
     @SerializedName("breakMinutes") val breakMinutes: Int,
     @SerializedName("workedMinutes") val workedMinutes: Int,
-    @SerializedName("lateMinutes") val lateMinutes: Int
+    @SerializedName("lateMinutes") val lateMinutes: Int,
+    @SerializedName("openBreakStartedAtUtc") val openBreakStartedAtUtc: String? = null
 )
 
 interface AttendanceService {
