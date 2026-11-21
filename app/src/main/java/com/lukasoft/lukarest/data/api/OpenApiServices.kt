@@ -39,9 +39,16 @@ data class ExchangeStaffQrSessionCommand(
     @SerializedName("qrToken") val qrToken: String
 )
 
+data class RenewStaffQrSessionCommand(
+    @SerializedName("qrToken") val qrToken: String
+)
+
 interface StaffOnboardingService {
     @POST("/api/v1/staff-onboarding/qr-session/{sessionId}/renew")
-    suspend fun renewQrSession(@Path("sessionId") sessionId: String): Response<QrSessionResponse>
+    suspend fun renewQrSession(
+        @Path("sessionId") sessionId: String,
+        @Body body: RenewStaffQrSessionCommand
+    ): Response<QrSessionResponse>
 
     @POST("/api/v1/staff-onboarding/qr-session")
     suspend fun createQrSession(): Response<QrSessionResponse>
