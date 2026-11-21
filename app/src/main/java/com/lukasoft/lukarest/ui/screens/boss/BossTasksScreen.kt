@@ -113,12 +113,13 @@ fun BossTasksScreen(
 
     val doneCount = tasks.count { it.status == TaskStatus.DONE }
     val lateCount = tasks.count { it.status == TaskStatus.LATE }
-    val pendingCount = tasks.count { it.status == TaskStatus.PENDING }
+    val pendingStatuses = setOf(TaskStatus.PENDING, TaskStatus.AWAITING_APPROVAL)
+    val pendingCount = tasks.count { it.status in pendingStatuses }
 
     fun matchesFilter(task: TaskItem): Boolean =
         when (filter) {
             "late" -> task.status == TaskStatus.LATE
-            "pending" -> task.status == TaskStatus.PENDING
+            "pending" -> task.status in pendingStatuses
             "done" -> task.status == TaskStatus.DONE
             else -> true
         }
