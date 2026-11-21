@@ -497,7 +497,14 @@ fun BossDashboardScreen(
 
 
                     // KPI 2 - Görevler
-                    LukaCard(modifier = Modifier.weight(1f), contentPadding = PaddingValues(10.dp)) {
+                    LukaCard(
+                        modifier = Modifier.weight(1f).clickable(
+                            role = androidx.compose.ui.semantics.Role.Button,
+                            onClickLabel = "Görevleri aç",
+                            onClick = onNavigateToTasks
+                        ),
+                        contentPadding = PaddingValues(10.dp)
+                    ) {
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(text = if (tasksUnavailable) "—" else "$completedTasksCount", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BossGradStart)
                             Text(text = if (tasksUnavailable) "" else " / ${tasks.size}", fontSize = 12.sp, color = TextMuted)
