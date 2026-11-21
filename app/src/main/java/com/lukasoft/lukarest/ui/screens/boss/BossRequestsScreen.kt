@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,8 +35,12 @@ import kotlinx.coroutines.launch
 fun BossRequestsScreen(
     viewModel: LukaViewModel,
     onNavigateToRequestDetail: (String) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onOpenNotifications: () -> Unit = {},
+    onOpenNotes: () -> Unit = {}
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val isOwner by AuthStore.globalRole.collectAsState()
     var serverRequests by remember { mutableStateOf<List<StaffRequestListItemDto>>(emptyList()) }
     var filter by remember { mutableStateOf("all") } // "all", "pending", "approved", "rejected"
     val coroutineScope = rememberCoroutineScope()
@@ -81,12 +86,23 @@ fun BossRequestsScreen(
             ) {
                 TopPill(
                     title = "Tüm Talepler",
-                    subtitle = "Vardiya & İzin Talepleri",
+                    subtitle = "Vardiya, izin ve operasyon",
                     initials = "P",
                     gradient = BossGradient,
-                    showAction = AuthStore.globalRole.collectAsState().value == "CompanyOwner",
-                    onActionClick = onLogout
+                    actionIcon = Icons.Default.Menu,
+                    actionDescription = "Yönetim menüsünü aç",
+                    onActionClick = { menuOpen = true }
                 )
+                Box(Modifier.align(Alignment.BottomEnd)) {
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = White) {
+                        DropdownMenuItem(text = { Text("Bildirimler") }, onClick = { menuOpen = false; onOpenNotifications() })
+                        DropdownMenuItem(text = { Text("Operasyon defteri") }, onClick = { menuOpen = false; onOpenNotes() })
+                        if (isOwner == "CompanyOwner") {
+                            HorizontalDivider()
+                            DropdownMenuItem(text = { Text("Çıkış yap", color = PillErr.fg) }, onClick = { menuOpen = false; onLogout() })
+                        }
+                    }
+                }
             }
         },
         containerColor = BgScreenTop
@@ -177,6 +193,7 @@ fun BossRequestsScreen(
                                                 "ExcusedLeave" -> "Mazeret İzni"
                                                 "StockDepletion" -> "Stok Tükenme Bildirimi"
                                                 "EquipmentFault" -> "Ekipman Arızası"
+                                                "GeneralNeed" -> "Genel ihtiyaç"
                                                 else -> req.requestType
                                             },
                                             fontSize = 12.sp,

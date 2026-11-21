@@ -417,6 +417,8 @@ fun AppNavigation(
             composable(Screen.BossRequests.route) {
                 BossRequestsScreen(
                     viewModel = viewModel,
+                    onOpenNotifications = openNotifications,
+                    onOpenNotes = { navController.navigate(Screen.OperationalNotes.route) },
                     onNavigateToRequestDetail = { reqId ->
                         navController.navigate(Screen.BossRequestDetail.createRoute(reqId))
                     },

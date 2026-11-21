@@ -152,7 +152,8 @@ class TaskUiContractTest {
             LukarestTheme { com.lukasoft.lukarest.ui.screens.staff.StaffRequestsScreen(
                 viewModel = LukaViewModel(), onNavigateToShifts = {}, onNavigateToShiftChange = {}, onNavigateToLeaveChange = {}) }
         }
-        compose.onNodeWithText("Stok, arıza veya ihtiyaç bildir").performClick()
+        compose.onNodeWithText("Yeni talep oluştur").performClick()
+        compose.onNodeWithText("İhtiyaç veya sorun bildir").performClick()
         compose.onNodeWithText("Talebi gönder").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Ürün veya ekipman").performScrollTo().performTextInput("Bardak")
         compose.onNodeWithText("Açıklama").performScrollTo().performTextInput("Bir koli bardak gerekiyor")

@@ -276,7 +276,7 @@ fun BossRequestDetailScreen(
                     LukaCard {
                         Text(text = "Talep Edilen İzin", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextMain)
                         Text(
-                            text = "${lv.durationDays} Gün (${lv.leaveCategory})",
+                            text = "${lv.durationDays} Gün (${if (lv.leaveCategory.equals("Health", ignoreCase = true)) "Sağlık" else lv.leaveCategory})",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = StaffGradStart
@@ -305,9 +305,19 @@ fun BossRequestDetailScreen(
                             fontWeight = FontWeight.Bold,
                             color = PillErr.fg
                         )
-                        if (isDetail.quantity != null) {
-                            Text(text = "Miktar: ${isDetail.quantity}", fontSize = 13.sp, color = TextSoft)
-                        }
+                        Text(
+                            text = listOfNotNull(
+                                "Tip: " + when (req.requestType) {
+                                    "StockDepletion" -> "Stok eksikliği"
+                                    "EquipmentFault" -> "Ekipman arızası"
+                                    "GeneralNeed" -> "Genel ihtiyaç"
+                                    else -> req.requestType
+                                },
+                                isDetail.quantity?.let { "Miktar: $it" }
+                            ).joinToString(" · "),
+                            fontSize = 13.sp,
+                            color = TextSoft
+                        )
                         if (req.reason.isNotBlank()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(text = "Açıklama: ${req.reason}", fontSize = 13.sp, color = TextSoft)
